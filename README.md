@@ -38,6 +38,38 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ### System Setup
 
+*   **Linux Kernel Headers:** You'll need the kernel headers for your running kernel. Install them using:
+
+    ```
+    sudo apt update
+    sudo apt install raspberrypi-kernel-headers
+    ```
+
+	You should have a directory with your kernel headers and config files at `/usr/lib/modules/$(uname -r)/build`. This is enough to build kernel modules, we don't need the full kernel sources.
+
+* **I2C Enabled:** Make sure I2C is enabled on your Raspberry Pi. You can do this using `raspi-config` (Interface Options -> I2C -> Enable) or by manually editing `/boot/firmware/config.txt` and ensuring `dtparam=i2c_arm=on` is present (and not commented out). Reboot after enabling.
+
+* **`i2c-dev` module**: This is useful in order to make sure you wired up your sensor the right way. The `i2c-dev` kernel module gives userspace access to I2C. For each I2C bus on the system, this module exposes a `/dev/ic2-X` chrdev file. It comes with Raspberry Pi's OS, and you can load it with:
+
+    ```
+    sudo modprobe i2c-dev
+    ```
+
+    To make it load automatically on boot, add `i2c-dev` to `/etc/modules`. On my installation, it's already there.
+
+	For our example, after enabling the bus and loading this module, you should have an `/dev/i2c-1` file.
+
+* **`i2c-tools`**: The i2c-tools package provides a set of command-line utilities that make it easier to communicate with I2C devices from userspace using the `i2c-dev` exposed files. You can install it on the Raspberry Pi OS using:
+
+	```bash
+	sudo apt update
+	sudo apt install i2c-tools
+	```
+
+	If you wired everything correctly, running `i2c-detect -l` will display all the I2C buses on the system. The main bus exposed through the GPIO pins should show up as `i2c-1`. If not, you probably didn't enable it (see above), or didn't reboot after enabling it.
+
+	Finally, running `i2c-detect -y 1` will show a table of devices sitting on our I2C bus. There should only be one filled entry in this table, with the address number associated with our BMP280 sensor. For instance, my sensor has address 0x76. Take note of this number. 
+
 ## Building the Driver
 
 1.  **Clone the Repository:**
