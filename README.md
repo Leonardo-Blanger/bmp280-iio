@@ -26,15 +26,15 @@ Tested only on Raspberry Pi 5., although it should work on other platforms if yo
 
 You can easily find it online. It should look something like this:
 
-TODO: Insert a photo.
+<img src="images/sensor-closeup.jpg" height=512>
 
 We will use the I2C protocol, so we will only use the pins labeled SDA (that's the data line), SCL (clock), VCC (3.3v power), and GND (ground). If your BMP280 does not come with soldered pins, I found I could get away by just pinning it down into a breadboard with the male side of jumper wires.
 
-TODO: Insert a photo
+<img src="images/sensor-connections.jpg" height=512>
 
 Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be the GPIO2 pin for data, and GPIO3 pin for clock. Note that there is an I2C-0 bus as well (GPIO0 and GPIO1), but that is typically reserved for the system. You can see more information on [this page](https://pinout.xyz/pinout/i2c). You also need pins for 3.3v power and ground. My arrangement looks like this:
 
-TODO: Insert a photo
+<img src="images/full-arrangement.jpg" height=512>
 
 ### System Setup
 
