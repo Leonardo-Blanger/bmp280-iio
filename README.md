@@ -1,8 +1,10 @@
 # IIO Compatible Linux Kernel Driver for the BMP280 Temperature and Pressure Sensor
 
-> **Disclaimer:** This is a hobby project I developed, after having studied Linux driver development for the past few weeks. I came up with this project as a way to explore concepts such as I2C comunication and the the IIO subsystem in practice. In summary, the main purpose for this project is self learning, and it was absolutely **not** tested for "mission critical" use cases.
+> **Disclaimer:** This is a hobby project I developed after having studied Linux driver development for the past few weeks. I came up with this project as a way to explore concepts such as I2C comunication and the the IIO subsystem in practice. In summary, the main purpose for this project is self learning, and it was absolutely **not** tested for "mission critical" use cases.
 
-This project provides a Linux kernel driver for the Bosch BMP280 temperature and pressure sensor. It exposes the sensor data through the Linux IIO (Industrial I/O) subsystem, making it easy to integrate with existing tools and libraries. I also supports IIO triggered buffers. It was designed with full support for Device Tree Overlays, so it can be reconfigured to work on any platform by simply editing the overlay file. That being said, it was only tested on a Raspberry Pi 5.
+This project provides a Linux kernel driver for the Bosch BMP280 temperature and pressure sensor. It exposes the sensor data through the Linux IIO (Industrial I/O) subsystem, making it easy to integrate with existing tools and libraries. It also supports IIO triggered buffers. 
+
+This project was designed with full support for Device Tree Overlays, so it can be reconfigured to work on any platform by simply editing the overlay file. That being said, it was only tested on a Raspberry Pi 5.
 
 ## Overview
 
