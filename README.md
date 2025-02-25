@@ -36,7 +36,7 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 <img src="images/full-arrangement.jpg" height=512>
 
-### System Setup
+## System Setup
 
 *   **Linux Kernel Headers:** You'll need the kernel headers for your running kernel. Install them using:
 
