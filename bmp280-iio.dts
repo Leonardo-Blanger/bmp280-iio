@@ -32,6 +32,6 @@
 
   __overrides__ {
     // Allow the I2C address to be overridden via the command line
-    address = <&my_i2c_sensor>,"reg:0";
+    address = <&leo_blanger_bmp280_iio>,"reg:0";
   };
  };

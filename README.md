@@ -38,20 +38,11 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ## System Setup
 
-*   **Linux Kernel Headers:** You'll need the kernel headers for your running kernel. Install them using:
-
-    ```
-    sudo apt update
-    sudo apt install raspberrypi-kernel-headers
-    ```
-
-	You should have a directory with your kernel headers and config files at `/usr/lib/modules/$(uname -r)/build`. This is enough to build kernel modules, we don't need the full kernel sources.
-
 * **I2C Enabled:** Make sure I2C is enabled on your Raspberry Pi. You can do this using `raspi-config` (Interface Options -> I2C -> Enable) or by manually editing `/boot/firmware/config.txt` and ensuring `dtparam=i2c_arm=on` is present (and not commented out). Reboot after enabling.
 
 * **`i2c-dev` module**: This is useful in order to make sure you wired up your sensor the right way. The `i2c-dev` kernel module gives userspace access to I2C. For each I2C bus on the system, this module exposes a `/dev/ic2-X` chrdev file. It comes with Raspberry Pi's OS, and you can load it with:
 
-    ```
+    ```bash
     sudo modprobe i2c-dev
     ```
 
@@ -72,21 +63,37 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ## Building the Driver
 
-1.  **Clone the Repository:**
+1   **Linux Kernel Headers:** You will need the kernel headers for your running kernel. Install them using:
+
+    ```bash
+    sudo apt update
+    sudo apt install raspberrypi-kernel-headers
+    ```
+
+	You should have a directory with your kernel headers and config files at `/usr/lib/modules/$(uname -r)/build`. This is enough to build kernel modules, we don't need the full kernel sources.
+
+2. **Build Dependencies:** You will need a set of dependencies to build kernel modules and device tree overlays. On the Raspberry Pi OS, you can install them with:
+
+	```bash
+	sudo apt update
+	sudo apt install device-tree-compiler
+	```
+
+3.  **Clone the Repository:**
 
     ```bash
     git clone https://github.com/Leonardo-Blanger/bmp280-iio.git
     cd bmp280-iio
     ```
 
-2.  **Build the Device Tree Overlay:**
+4.  **Build the Device Tree Overlay:**
 
 	```bash
 	make dtbo
 	```
 	This will generate our `bmp280-iio.dtbo` Device Tree blob overlay.
 
-3.  **Build the Module:**
+5.  **Build the Module:**
 
     ```bash
     make
