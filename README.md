@@ -63,7 +63,7 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ## Building the Driver
 
-1   **Linux Kernel Headers:** You will need the kernel headers for your running kernel. Install them using:
+1.  **Linux Kernel Headers:** You will need the kernel headers for your running kernel. Install them using:
 
     ```bash
     sudo apt update
@@ -72,11 +72,11 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 	You should have a directory with your kernel headers and config files at `/usr/lib/modules/$(uname -r)/build`. This is enough to build kernel modules, we don't need the full kernel sources.
 
-2. **Build Dependencies:** You will need a set of dependencies to build kernel modules and device tree overlays. On the Raspberry Pi OS, you can install them with:
+2.  **Build Dependencies:** You will need a set of dependencies to build kernel modules and device tree overlays. On the Raspberry Pi OS, you can install them with:
 
 	```bash
 	sudo apt update
-	sudo apt install device-tree-compiler
+	sudo apt install make build-essential device-tree-compiler
 	```
 
 3.  **Clone the Repository:**

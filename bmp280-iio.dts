@@ -22,16 +22,16 @@
 
       // Use your own name or some other keyword, to minimize the risk of
       // clashes. Replace 76 with your sensor's I2C address
-      leo_blanger_bmp280_iio: leo_blanger_bmp280_iio@76 {
-	compatible = "leo-blanger,bmp280-iio";
+      leonardo_bmp280_iio: leonardo_bmp280_iio@76 {
+	compatible = "leonardo,bmp280-iio";
 	reg = <0x76>; // Replace 76 with your sensor's I2C address
-	label = "leo-blanger's BMP280 I2C IIO driver";
+	label = "Leonardo's BMP280 I2C IIO driver";
       };
     };
   };
 
   __overrides__ {
     // Allow the I2C address to be overridden via the command line
-    address = <&leo_blanger_bmp280_iio>,"reg:0";
+    address = <&leonardo_bmp280_iio>,"reg:0";
   };
  };
