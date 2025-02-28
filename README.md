@@ -12,10 +12,10 @@ The [BMP280](https://www.bosch-sensortec.com/media/boschsensortec/downloads/data
 
 Instead of a simple character device, this driver uses the [IIO framework](https://docs.kernel.org/driver-api/iio/index.html). This offers several advantages:
 
-*   **Standardized Interface:**  IIO provides a consistent way to access sensor data, regardless of the underlying hardware.  Tools that understand IIO can automatically work with this driver.
+* **Standardized Interface:**  IIO provides a consistent way to access sensor data, regardless of the underlying hardware.  Tools that understand IIO can automatically work with this driver.
 *   **Sysfs Integration:** Sensor readings and configuration options are exposed through the sysfs filesystem, making them easily accessible from userspace.
-*   **Data Buffering:** IIO supports data buffering, which can be useful for applications that need to collect data at high frequencies.
-*   **Trigger Support:**  The IIO framework allows setting up triggers, often used in combination with data buffers. Triggers are events that cause the driver to read a sample of data and push it into a data buffer.
+* **Data Buffering:** IIO supports data buffering, which can be useful for applications that need to collect data at high frequencies.
+* **Trigger Support:**  The IIO framework allows setting up triggers, often used in combination with data buffers. Triggers are events that cause the driver to read a sample of data and push it into a data buffer.
 
 ## Prerequisites
 
@@ -42,11 +42,11 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 * **`i2c-dev` module**: This is useful in order to make sure you wired up your sensor the right way. The `i2c-dev` kernel module gives userspace access to I2C. For each I2C bus on the system, this module exposes a `/dev/ic2-X` chrdev file. It comes with Raspberry Pi's OS, and you can load it with:
 
-    ```bash
+	```bash
     sudo modprobe i2c-dev
     ```
 
-    To make it load automatically on boot, add `i2c-dev` to `/etc/modules`. On my installation, it's already there.
+	To make it load automatically on boot, add `i2c-dev` to `/etc/modules`. On my installation, it's already there.
 
 	For our example, after enabling the bus and loading this module, you should have an `/dev/i2c-1` file.
 
@@ -63,37 +63,37 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ## Building the Driver
 
-1.  **Linux Kernel Headers:** You will need the kernel headers for your running kernel. Install them using:
+1. **Linux Kernel Headers:** You will need the kernel headers for your running kernel. Install them using:
 
-    ```bash
+	```bash
     sudo apt update
     sudo apt install raspberrypi-kernel-headers
     ```
 
 	You should have a directory with your kernel headers and config files at `/usr/lib/modules/$(uname -r)/build`. This is enough to build kernel modules, we don't need the full kernel sources.
 
-2.  **Build Dependencies:** You will need a set of dependencies to build kernel modules and device tree overlays. On the Raspberry Pi OS, you can install them with:
+2. **Build Dependencies:** You will need a set of dependencies to build kernel modules and device tree overlays. On the Raspberry Pi OS, you can install them with:
 
 	```bash
 	sudo apt update
 	sudo apt install make build-essential device-tree-compiler
 	```
 
-3.  **Clone the Repository:**
+3. **Clone the Repository:**
 
     ```bash
     git clone https://github.com/Leonardo-Blanger/bmp280-iio.git
     cd bmp280-iio
     ```
 
-4.  **Build the Device Tree Overlay:**
+4. **Build the Device Tree Overlay:**
 
 	```bash
 	make dtbo
 	```
 	This will generate our `bmp280-iio.dtbo` Device Tree blob overlay.
 
-5.  **Build the Module:**
+5. **Build the Module:**
 
     ```bash
     make modules
@@ -104,14 +104,14 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ## Installing and Loading the Driver
 
-1.  **Copy the Module (Optional but Recommended):**
+1. **Copy the Module (Optional but Recommended):**
 
     ```bash
     sudo make modules_install
     ```
     This will place your module in the correct kernel modules directory. You might need to manually run `sudo depmod` afterwards. For some reason, on my installation, it does not run automatically.
 
-2.  **Load the Module:**
+2. **Load the Module:**
 
     ```bash
     sudo insmod bmp280-iio.ko
@@ -122,31 +122,34 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
     sudo modprobe bmp280-iio
     ```
 
-3.  **Verify Installation:**
-    *   Check for the IIO device:
+3. **Verify Installation:**
 
-        ```bash
-        ls /sys/bus/iio/devices/
-        ```
-        You should see a device named something like `iio:deviceX` (where X is a number). This represents your BMP280 sensor. You can check for the device name using:
+* Check for the IIO device:
 
-		```bash
-		cat '/sys/bus/iio/devices/iio:device<X>/name'
-		```
-		The name should be `bmp280-iio`. This is useful in case you already had other IIO device directories.
+    ```bash
+    ls /sys/bus/iio/devices/
+    ```
+    You should see a device named something like `iio:deviceX` (where X is a number). This represents your BMP280 sensor. You can check for the device name using:
 
-    *   Check for kernel messages:
+	```bash
+	cat '/sys/bus/iio/devices/iio:device<X>/name'
+	```
+	The name should be `bmp280-iio`. This is useful in case you already had other IIO device directories.
 
-        ```bash
-        dmesg | grep bmp280-iio
-        ```
-        You should see the following messages indicating the driver loaded and detected the sensor:
+*   Check for kernel messages:
 
-		TODO: Write this once we settle on the log format.
+    ```bash
+    dmesg | grep bmp280-iio
+    ```
+    You should see the following messages indicating the driver loaded and detected the sensor:
 
-4.  **Automatic Loading on Boot (Optional):**
-    *   To automatically load the driver on boot, add `bmp280-iio` to the `/etc/modules` file.
-	*   TODO: Find out how to make the dtoverlay load on boot.
+	TODO: Write this once we settle on the log format.
+
+4. **Automatic Loading on Boot (Optional):**
+
+* To automatically load the driver on boot, add `bmp280-iio` to the `/etc/modules` file.
+
+* TODO: Find out how to make the dtoverlay load on boot.
 
 ## Accessing Sensor Data
 
@@ -155,8 +158,6 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-TODO: Create an MIT license file.
 
 ## References
 
