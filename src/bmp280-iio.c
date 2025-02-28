@@ -6,6 +6,7 @@
 #include <linux/moduleparam.h>
 #include <linux/of.h>
 #include <linux/printk.h>
+#include <linux/types.h>
 
 MODULE_AUTHOR("Leonardo Blanger");
 MODULE_LICENSE("GPL");
@@ -222,7 +223,7 @@ static int bmp280_iio_probe(struct i2c_client *client) {
     return -1;
   }
   // Try to read the sensor ID, and verify if it matches the expected BMP280 ID.
-  uint8_t sensor_id = i2c_smbus_read_byte_data(client, BMP280_ID_REG);
+  u8 sensor_id = i2c_smbus_read_byte_data(client, BMP280_ID_REG);
   if (sensor_id != BMP280_ID) {
     pr_err("Unexpected sensor id 0x%02x. Expecting 0x%02x\n",
 	   sensor_id, BMP280_ID);
@@ -232,7 +233,8 @@ static int bmp280_iio_probe(struct i2c_client *client) {
   // devm_* methods do not require corresponding free/unregister calls.
   // When client->dev is removed, the reverse operation happens automatically.
   struct iio_dev *indio_dev =
-    devm_iio_device_alloc(&client->dev, /*sizeof_priv*/0);
+    devm_iio_device_alloc(&client->dev,
+			  /*sizeof_priv*/sizeof(struct i2c_client *));
   if (!indio_dev) {
     return -ENOMEM;
   }
@@ -241,6 +243,9 @@ static int bmp280_iio_probe(struct i2c_client *client) {
   indio_dev->modes = INDIO_DIRECT_MODE;
   indio_dev->channels = bmp280_iio_channels;
   indio_dev->num_channels = ARRAY_SIZE(bmp280_iio_channels);
+  // Make the I2C client available from our IIO device structure.
+  struct i2c_client **priv_data = iio_priv(indio_dev);
+  *priv_data = client;
   // Register device with the IIO subsystem
   int status = devm_iio_device_register(&client->dev, indio_dev);
   if (status) {
@@ -261,9 +266,76 @@ static void bmp280_iio_remove(struct i2c_client *client) {
   pr_info("Removing the i2c driver.\n");
 }
 
+int read_bmp280_calibration_value(struct i2c_client *client,
+				  int calib_index,
+				  u16 *value);
+int read_bmp280_raw_temperature(struct i2c_client *client, u32 *value);
+int read_bmp280_processed_temperature(struct i2c_client *client, s32 *value);
+
+/**
+ * IIO driver's read method.
+ * This method identifies which of the IIO sysfs files is being read from,
+ * and assembles the result from sensor specific methos declared above.
+ */
 static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
 			       struct iio_chan_spec const *chan,
 			       int *val, int *val2, long mask) {
-  pr_info("Called bmp280_iio_read_raw\n");
+  struct i2c_client **priv_data = iio_priv(indio_dev);
+  struct i2c_client *client = *priv_data;
+  switch (mask) {
+  case IIO_CHAN_INFO_RAW:
+    if (0 <= chan->channel && chan->channel <= 2) {
+      // One of the three calibration values
+      u16 calib_value = 0;
+      int status =
+	read_bmp280_calibration_value(client, chan->channel, &calib_value);
+      if (status) {
+	return status;
+      }
+      *val = calib_value;
+    } else if(chan->channel == 3) {
+      // The raw temperature value.
+      u32 raw_temp = 0;
+      int status = read_bmp280_raw_temperature(client, &raw_temp);
+      if (status) {
+	return status;
+      }
+      *val = raw_temp;
+    } else {
+      pr_err("Unexpected IIO channel number %d\n", chan->channel);
+      return -EINVAL;
+    }
+    break;
+  case IIO_CHAN_INFO_PROCESSED:
+    s32 processed_temp = 0;
+    int status = read_bmp280_processed_temperature(client, &processed_temp);
+    if (status) {
+      return status;
+    }
+    *val = processed_temp;
+    break;
+  default:
+    pr_err("Unexpected IIO read mask %ld\n", mask);
+    return -EINVAL;
+  }
+  return IIO_VAL_INT;
+}
+
+int read_bmp280_calibration_value(struct i2c_client *client,
+				  int calib_index,
+				  u16 *value) {
+  *value = 10 + calib_index;
+  return 0;
+}
+
+int read_bmp280_raw_temperature(struct i2c_client *client, u32 *value) {
+  *value = 111;
+  return 0;
+}
+
+int read_bmp280_processed_temperature(struct i2c_client *client, s32 *value) {
+  *value = 22;
+  u8 sensor_id = i2c_smbus_read_byte_data(client, BMP280_ID_REG);
+  pr_info("Sensor ID: 0x%02x\n", sensor_id);
   return 0;
 }
