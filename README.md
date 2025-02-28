@@ -96,11 +96,57 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 5.  **Build the Module:**
 
     ```bash
-    make
+    make modules
     ```
     This will generate our `bmp280-iio.ko` kernel module.
 
+	Note: Running `make` withou arguments builds both the dt overlay, and the module. Running `make clean` deletes all build files from your repo.
+
 ## Installing and Loading the Driver
+
+1.  **Copy the Module (Optional but Recommended):**
+
+    ```bash
+    sudo make modules_install
+    ```
+    This will place your module in the correct kernel modules directory. You might need to manually run `sudo depmod` afterwards. For some reason, on my installation, it does not run automatically.
+
+2.  **Load the Module:**
+
+    ```bash
+    sudo insmod bmp280-iio.ko
+    ```
+    Alternatively, if you used `make modules_install`, you can load it with:
+
+    ```bash
+    sudo modprobe bmp280-iio
+    ```
+
+3.  **Verify Installation:**
+    *   Check for the IIO device:
+
+        ```bash
+        ls /sys/bus/iio/devices/
+        ```
+        You should see a device named something like `iio:deviceX` (where X is a number). This represents your BMP280 sensor. You can check for the device name using:
+
+		```bash
+		cat '/sys/bus/iio/devices/iio:device<X>/name'
+		```
+		The name should be `bmp280-iio`. This is useful in case you already had other IIO device directories.
+
+    *   Check for kernel messages:
+
+        ```bash
+        dmesg | grep bmp280-iio
+        ```
+        You should see the following messages indicating the driver loaded and detected the sensor:
+
+		TODO: Write this once we settle on the log format.
+
+4.  **Automatic Loading on Boot (Optional):**
+    *   To automatically load the driver on boot, add `bmp280-iio` to the `/etc/modules` file.
+	*   TODO: Find out how to make the dtoverlay load on boot.
 
 ## Accessing Sensor Data
 

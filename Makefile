@@ -1,13 +1,21 @@
-obj-m += src/bmp280-iio.o
+MODULE_NAME := bmp280-iio
+SRC_DIR := src
+KERNEL_VERSION := $(shell uname -r)
 
-all: dtbo module
+$(MODULE_NAME)-y := $(SRC_DIR)/$(MODULE_NAME).o
+obj-m += $(MODULE_NAME).o
 
-dtbo: bmp280-iio.dts
-	dtc -@ -I dts -O dtb -o bmp280-iio.dtbo bmp280-iio.dts
+all: dtbo modules
+
+dtbo: $(MODULE_NAME).dts
+	dtc -@ -I dts -O dtb -o $(MODULE_NAME).dtbo $(MODULE_NAME).dts
 	echo "Built Device Tree Overlay"
-module:
-	make -C /usr/lib/modules/$(shell uname -r)/build M=$(PWD) modules
-	echo "Built Kernel Modules"
+modules:
+	make -C /usr/lib/modules/$(KERNEL_VERSION)/build M=$(CURDIR) modules
+	echo "Built Kernel Module"
+modules_install:
+	make -C /usr/lib/modules/$(KERNEL_VERSION)/build M=$(CURDIR) modules_install
+	echo "Installed Kernel Module"
 clean:
-	rm bmp280-iio.dtbo
-	make -C /usr/lib/modules/$(shell uname -r)/build M=$(PWD) clean
+	rm $(MODULE_NAME).dtbo
+	make -C /usr/lib/modules/$(KERNEL_VERSION)/build M=$(CURDIR) clean
