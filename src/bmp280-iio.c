@@ -1,4 +1,6 @@
 #include <linux/i2c.h>
+#include <linux/iio/iio.h>
+#include <linux/kernel.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -26,6 +28,14 @@ MODULE_PARM_DESC(bmp280_i2c_address, "I2C address for the BMP280 sensor");
  */
 #define BMP280_ID 0x58
 #define BMP280_ID_REG 0xD0
+
+/**
+ * Register addresses for temperature reading from BMP280.
+ */
+#define TEMP_CALIBRATION_T1_ADDRESS 0x88
+#define TEMP_CALIBRATION_T2_ADDRESS 0x8a
+#define TEMP_CALIBRATION_T3_ADDRESS 0x8c
+#define TEMP_RAW_ADDRESS 0xfa
 
 /**
  * Traditional device table matching approach.
@@ -70,6 +80,136 @@ static struct i2c_driver bmp280_iio_driver = {
 module_i2c_driver(bmp280_iio_driver);
 
 /**
+ * IIO channels.
+ * We make one channel available for each of the three calibration values,
+ * plus one chanel for the raw, unprocessed, temperature value, and one channel
+ * for the final, processed, temperature value.
+ * Within `/sys/bus/iio/devices/iio:deviceX/`, these will be:
+ * `in_temp{0-3}_raw` and `in_temp_input`, respectively.
+ */
+static const struct iio_chan_spec bmp280_iio_channels[] = {
+  // First calibration value, refered to as dig_T1 on the datasheet.
+  // Corresponding sysfs file: `in_temp0_raw`
+  {
+    .type = IIO_TEMP,
+    .indexed = 1,
+    .channel = 0,
+    .address = TEMP_CALIBRATION_T1_ADDRESS,
+    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+    // For triggered buffer reads, this sets the position of this channel's
+    // data within the sample.
+    .scan_index = 0,
+    // Channel data is signed (2-complement), takes up 16 bits without any
+    // padding, and follows the host CPU's endianness.
+    .scan_type = {
+      .sign = 's',
+      .realbits = 16,
+      .storagebits = 16,
+      .shift = 0,
+      .endianness = IIO_CPU,
+    },
+    .output = 0,
+  },
+  // Second calibration value, refered to as dig_T2 on the datasheet.
+  // Corresponding sysfs file: `in_temp1_raw`
+  {
+    .type = IIO_TEMP,
+    .indexed = 1,
+    .channel = 1,
+    .address = TEMP_CALIBRATION_T2_ADDRESS,
+    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+    // For triggered buffer reads, this sets the position of this channel's
+    // data within the sample.
+    .scan_index = 1,
+    // Channel data is unsigned, takes up 16 bits without any padding,
+    // and follows the host CPU's endianness.
+    .scan_type = {
+      .sign = 'u',
+      .realbits = 16,
+      .storagebits = 16,
+      .shift = 0,
+      .endianness = IIO_CPU,
+    },
+    .output = 0,
+  },
+  // Third calibration value, refered to as dig_T3 on the datasheet.
+  // Corresponding sysfs file: `in_temp2_raw`
+  {
+    .type = IIO_TEMP,
+    .indexed = 1,
+    .channel = 2,
+    .address = TEMP_CALIBRATION_T3_ADDRESS,
+    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+    // For triggered buffer reads, this sets the position of this channel's
+    // data within the sample.
+    .scan_index = 2,
+    // Channel data is unsigned, takes up 16 bits without any padding,
+    // and follows the host CPU's endianness.
+    .scan_type = {
+      .sign = 'u',
+      .realbits = 16,
+      .storagebits = 16,
+      .shift = 0,
+      .endianness = IIO_CPU,
+    },
+    .output = 0,
+  },
+  // Raw temperature value, as directly read from the sensor.
+  // Corresponding sysfs file: `in_temp3_raw`
+  {
+    .type = IIO_TEMP,
+    .indexed = 1,
+    .channel = 3,
+    .address = TEMP_RAW_ADDRESS,
+    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+    // For triggered buffer reads, this sets the position of this channel's
+    // data within the sample.
+    .scan_index = 3,
+    // Channel data is unsigned, takes up the 24 MS bits within a 32 bits field,
+    // and follows the host CPU's endianness.
+    .scan_type = {
+      .sign = 'u',
+      .realbits = 24,
+      .storagebits = 32,
+      .shift = 8,
+      .endianness = IIO_CPU,
+    },
+    .output = 0,
+  },
+  // Final "processed" temperature value.
+  // Corresponding sysfs file: `in_temp_processed`
+  {
+    .type = IIO_TEMP,
+    .indexed = 0,
+    .info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED),
+    // For triggered buffer reads, this sets the position of this channel's
+    // data within the sample.
+    .scan_index = 4,
+    // Channel data is signed (2 complement), takes up 32 bits,
+    // and follows the host CPU's endianness.
+    .scan_type = {
+      .sign = 's',
+      .realbits = 32,
+      .storagebits = 32,
+      .shift = 0,
+      .endianness = IIO_CPU,
+    },
+    .output = 0,
+  },
+};
+
+static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
+			       struct iio_chan_spec const *chan,
+			       int *val, int *val2, long mask);
+
+/**
+ * IIO hooks. We only need to read from the device.
+ */
+static const struct iio_info bmp280_iio_info = {
+  .read_raw = bmp280_iio_read_raw,
+};
+
+/**
  * I2C driver probe.
  * Performs sanity checks on the client address, and sensor ID register,
  * then sets up an IIO device and registers it with the IIO subsystem.
@@ -88,6 +228,25 @@ static int bmp280_iio_probe(struct i2c_client *client) {
 	   sensor_id, BMP280_ID);
     return -1;
   }
+  // Set up IIO device structure.
+  // devm_* methods do not require corresponding free/unregister calls.
+  // When client->dev is removed, the reverse operation happens automatically.
+  struct iio_dev *indio_dev =
+    devm_iio_device_alloc(&client->dev, /*sizeof_priv*/0);
+  if (!indio_dev) {
+    return -ENOMEM;
+  }
+  indio_dev->name = client->name;
+  indio_dev->info = &bmp280_iio_info;
+  indio_dev->modes = INDIO_DIRECT_MODE;
+  indio_dev->channels = bmp280_iio_channels;
+  indio_dev->num_channels = ARRAY_SIZE(bmp280_iio_channels);
+  // Register device with the IIO subsystem
+  int status = devm_iio_device_register(&client->dev, indio_dev);
+  if (status) {
+    pr_err("Failed to register with IIO subsystem");
+    return status;
+  }
   pr_info("Probed i2c driver successfully.\n");
   return 0;
 }
@@ -100,4 +259,11 @@ static int bmp280_iio_probe(struct i2c_client *client) {
  */
 static void bmp280_iio_remove(struct i2c_client *client) {
   pr_info("Removing the i2c driver.\n");
+}
+
+static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
+			       struct iio_chan_spec const *chan,
+			       int *val, int *val2, long mask) {
+  pr_info("Called bmp280_iio_read_raw\n");
+  return 0;
 }
