@@ -31,12 +31,16 @@ MODULE_PARM_DESC(bmp280_i2c_address, "I2C address for the BMP280 sensor");
 #define BMP280_ID_REG 0xD0
 
 /**
- * Register addresses for temperature reading from BMP280.
+ * Register addresses for sampling control and configuration.
  */
-#define TEMP_CALIBRATION_T1_ADDRESS 0x88
-#define TEMP_CALIBRATION_T2_ADDRESS 0x8a
-#define TEMP_CALIBRATION_T3_ADDRESS 0x8c
-#define TEMP_RAW_ADDRESS 0xfa
+#define BMP280_CTRL_MEAS_REG_ADDRESS 0xf4
+#define BMP280_CONFIG_REG_ADDRESS 0xf5
+
+/**
+ * Register addresses for temperature reading.
+ */
+#define BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS 0x88
+#define BMP280_TEMP_RAW_REG_ADDRESS 0xfa
 
 /**
  * Traditional device table matching approach.
@@ -81,6 +85,30 @@ static struct i2c_driver bmp280_iio_driver = {
 module_i2c_driver(bmp280_iio_driver);
 
 /**
+ * IIO channel macro for calibration values.
+ * For triggered buffer reads, `scan_index` sets the position of this channel's
+ * data within the sample.
+ * `scan_type` tells that the channel data is unsigned, takes up 16 bits without
+ * any padding, and follows the CPU's endianness.
+ */
+#define BMP280_CALIBR_CHANNNEL(channel_type, index, scan_idx, reg_address) { \
+    .type = (channel_type),						\
+    .indexed = 1,							\
+    .channel = (index),						        \
+    .address = (reg_address),						\
+    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),			\
+    .scan_index = (scan_idx),						\
+    .scan_type = {							\
+      .sign = 'u',							\
+      .realbits = 16,							\
+      .storagebits = 16,						\
+      .shift = 0,							\
+      .endianness = IIO_CPU,						\
+    },									\
+    .output = 0,							\
+}
+
+/**
  * IIO channels.
  * We make one channel available for each of the three calibration values,
  * plus one chanel for the raw, unprocessed, temperature value, and one channel
@@ -89,90 +117,32 @@ module_i2c_driver(bmp280_iio_driver);
  * `in_temp{0-3}_raw` and `in_temp_input`, respectively.
  */
 static const struct iio_chan_spec bmp280_iio_channels[] = {
-  // First calibration value, refered to as dig_T1 on the datasheet.
-  // Corresponding sysfs file: `in_temp0_raw`
-  {
-    .type = IIO_TEMP,
-    .indexed = 1,
-    .channel = 0,
-    .address = TEMP_CALIBRATION_T1_ADDRESS,
-    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
-    // For triggered buffer reads, this sets the position of this channel's
-    // data within the sample.
-    .scan_index = 0,
-    // Channel data is signed (2-complement), takes up 16 bits without any
-    // padding, and follows the host CPU's endianness.
-    .scan_type = {
-      .sign = 's',
-      .realbits = 16,
-      .storagebits = 16,
-      .shift = 0,
-      .endianness = IIO_CPU,
-    },
-    .output = 0,
-  },
-  // Second calibration value, refered to as dig_T2 on the datasheet.
-  // Corresponding sysfs file: `in_temp1_raw`
-  {
-    .type = IIO_TEMP,
-    .indexed = 1,
-    .channel = 1,
-    .address = TEMP_CALIBRATION_T2_ADDRESS,
-    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
-    // For triggered buffer reads, this sets the position of this channel's
-    // data within the sample.
-    .scan_index = 1,
-    // Channel data is unsigned, takes up 16 bits without any padding,
-    // and follows the host CPU's endianness.
-    .scan_type = {
-      .sign = 'u',
-      .realbits = 16,
-      .storagebits = 16,
-      .shift = 0,
-      .endianness = IIO_CPU,
-    },
-    .output = 0,
-  },
-  // Third calibration value, refered to as dig_T3 on the datasheet.
-  // Corresponding sysfs file: `in_temp2_raw`
-  {
-    .type = IIO_TEMP,
-    .indexed = 1,
-    .channel = 2,
-    .address = TEMP_CALIBRATION_T3_ADDRESS,
-    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
-    // For triggered buffer reads, this sets the position of this channel's
-    // data within the sample.
-    .scan_index = 2,
-    // Channel data is unsigned, takes up 16 bits without any padding,
-    // and follows the host CPU's endianness.
-    .scan_type = {
-      .sign = 'u',
-      .realbits = 16,
-      .storagebits = 16,
-      .shift = 0,
-      .endianness = IIO_CPU,
-    },
-    .output = 0,
-  },
+  // Temperature calibration values, refered to as dig_T1 to dig_T3 on the
+  // datasheet. Corresponding sysfs files: `in_temp0_raw` to `in_temp2_raw.
+  // Note: each calibration value is 16 bits, thus the address deltas.
+  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 0, 0,
+			 BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS),
+  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 1, 1,
+			 BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS + 2),
+  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 2, 2,
+			 BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS + 4),
   // Raw temperature value, as directly read from the sensor.
   // Corresponding sysfs file: `in_temp3_raw`
   {
     .type = IIO_TEMP,
     .indexed = 1,
     .channel = 3,
-    .address = TEMP_RAW_ADDRESS,
+    .address = BMP280_TEMP_RAW_REG_ADDRESS,
     .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
-    // For triggered buffer reads, this sets the position of this channel's
-    // data within the sample.
     .scan_index = 3,
-    // Channel data is unsigned, takes up the 24 MS bits within a 32 bits field,
-    // and follows the host CPU's endianness.
+    // Channel data is signed (2 complement), takes up 20 bits within a 32 bits
+    // field, with the 4 LS bits being padding bits, and follows the host
+    // CPU's endianness.
     .scan_type = {
-      .sign = 'u',
+      .sign = 's',
       .realbits = 24,
       .storagebits = 32,
-      .shift = 8,
+      .shift = 4,
       .endianness = IIO_CPU,
     },
     .output = 0,
@@ -183,8 +153,6 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
     .type = IIO_TEMP,
     .indexed = 0,
     .info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED),
-    // For triggered buffer reads, this sets the position of this channel's
-    // data within the sample.
     .scan_index = 4,
     // Channel data is signed (2 complement), takes up 32 bits,
     // and follows the host CPU's endianness.
