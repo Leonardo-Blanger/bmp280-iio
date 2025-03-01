@@ -166,8 +166,6 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 	[...] bmp280_iio: Probed i2c driver successfully.
 	```
 
-	TODO: Write this once we settle on the log format.
-
 1. **Automatic Loading on Boot (Optional):**
 
 * To automatically load the driver on boot, add `bmp280-iio` to the `/etc/modules` file.
