@@ -14,6 +14,11 @@ MODULE_DESCRIPTION("An IIO compatible, I2C driver for the Bosch BMP280 "
 		   "temperature and pressure sensor.");
 
 /**
+ * The industrialio kernel module is a dependency.
+ */
+MODULE_SOFTDEP("pre: industrialio");
+
+/**
  * Expected I2C address. Can be configured as a module parameter if your sensor
  * somehow has a different address.
  * E.g. `sudo insmod bmp280-iio.ko bmp280_i2c_address=<addr>`

@@ -122,7 +122,7 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
     sudo modprobe bmp280-iio
     ```
 
-	TODO: This only works if the module specifies industrialio as a dependency. Figure it out how to do this.
+	I specified the `industrialio` kernel module as a dependency in the sources, so that module will be autmatically loaded as well.
 
 3. **Verify Installation:**
 
