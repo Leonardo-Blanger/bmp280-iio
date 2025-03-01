@@ -153,7 +153,29 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ## Accessing Sensor Data
 
-## Example
+After the driver is loaded, the sensor data will be available through the IIO sysfs interface. You can find the data under `/sys/bus/iio/devices/iio:deviceX/`, where `X` is some number, depending on how many IIO devices you have loaded.
+
+The important files are:
+
+* `in_temp0_raw` to `in_temp2_raw`: Raw temperature calibration readings.
+* `in_temp3_raw`: Raw temperature reading. Its meaning depends on the calibration values.
+* `in_temp_input`: This is the final, processed temperature value, in degrees Celcius.
+
+TODO: List the sysfs files for pressure as well, once those are implemented.
+
+### Example
+
+``` bash
+$ cat /sys/bus/iio/devices/iio:device0/name
+bmp280-iio
+
+$ cat /sys/bus/iio/devices/iio:device0/in_temp_input
+21.500000000
+```
+
+The sensor tells me that it reads 21.5 C on my room.
+
+TODO: Add an example for pressure reading as well.
 
 ## License
 
@@ -161,4 +183,20 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## References
 
-TODO: Link all the resources I used and/or might be useful.
+Some resources I found useful as I was learning about these topics:
+
+* *Linux Kernel Programming - Second Edition*, by Kaiwan N. Billimoria, 2024.
+
+	The best resource I came across about the Linux Kernel. It's a long and very thorough technical read, but absolutely worth it. It's also very up to date, with a 2024 edition. Recomended for anyone wanting to start learning about the Linux Kernel.
+
+* *Linux Kernel Programming Part 2 - Char Device Drivers and Kernel Synchronization*, by Kaiwan N. Billimoria, 2021.
+
+	A companion to the previous book, by the same author. Goes into more depth about some aspects of the kernel that come up often when working with drivers.
+
+* *Linux Device Driver Development - Second Edition*, by John Madieu, 2022.
+
+	Great book with a focus on driver development, with very detailed chapters on I2C and the IIO subsystem.
+
+* The [Johannes 4GNU_Linux](https://www.youtube.com/@johannes4gnu_linux96) Youtube channel.
+
+	This channel has a great playlist about driver development, and it's where I got the idea of writing a driver the BMP280 as an excercise.
