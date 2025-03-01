@@ -162,6 +162,7 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
     You should see the following messages indicating the driver loaded and detected the sensor:
 
 	```
+	[...] bmp280_iio: loading out-of-tree module taints kernel.
 	[...] bmp280_iio: Probing the i2c driver.
 	[...] bmp280_iio: Probed i2c driver successfully.
 	```
