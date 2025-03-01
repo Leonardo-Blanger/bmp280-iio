@@ -104,14 +104,28 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ## Installing and Loading the Driver
 
-1. **Copy the Module (Optional but Recommended):**
+1. **Copy the Module and Overlay to system wide directories (Optional but Recommended):**
+
+	```bash
+	sudo cp bmp280-iio.dtbo /boot/firmware/overlays
+	```
+	This will place your DT overlay in the system's default overlay directory.
 
     ```bash
     sudo make modules_install
     ```
     This will place your module in the correct kernel modules directory. You might need to manually run `sudo depmod` afterwards. For some reason, on my installation, it does not run automatically.
 
-2. **Load the Module:**
+1. **Load the DT Overlay**
+
+	```bash
+	sudo dtoverlay bmp280-iio.ko
+	```
+	You can omit the `.ko` extension if you copied the overlay to your system overlays directory.
+
+	If you now run `dtoverlay -l`, you should be able to see our module listed. You can also use `sudo dtoverlay -r bmp280-iio` to unload it.
+
+1. **Load the Module:**
 
     ```bash
     sudo insmod bmp280-iio.ko
@@ -124,7 +138,9 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 	I specified the `industrialio` kernel module as a dependency in the sources, so that module will be autmatically loaded as well.
 
-3. **Verify Installation:**
+	If you now run `lsmod | head`, you should be able to see our loaded `bmp280-iio` module listed at the top of the list. You can use `sudo rmmod bmp280-iio` (or `sudo modprobe -r bmp280-iio`) to unload it.
+
+1. **Verify Installation:**
 
 * Check for the IIO device:
 
@@ -147,11 +163,11 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 	TODO: Write this once we settle on the log format.
 
-4. **Automatic Loading on Boot (Optional):**
+1. **Automatic Loading on Boot (Optional):**
 
 * To automatically load the driver on boot, add `bmp280-iio` to the `/etc/modules` file.
 
-* TODO: Find out how to make the dtoverlay load on boot.
+* To automatically load our DT overlay on boot, in addition to have it in your system wide `/boot/firmware/overlays` folder, you also need to add the overlay directive `dtoverlay=bmp280-iio` to the end of `/boot/firmware/config.txt`.
 
 ## Accessing Sensor Data
 
