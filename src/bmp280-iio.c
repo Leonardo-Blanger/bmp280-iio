@@ -3,6 +3,7 @@
 #include <linux/errno.h>
 #include <linux/i2c.h>
 #include <linux/iio/iio.h>
+#include <linux/iio/types.h>
 #include <linux/kernel.h>
 #include <linux/printk.h>
 #include <linux/types.h>
@@ -30,6 +31,12 @@
 #define BMP280_TEMP_RAW_REG_ADDRESS 0xfa
 
 /**
+ * Register addresses for pressure reading.
+ */
+#define BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS 0x8e
+#define BMP280_PRESS_RAW_REG_ADDRESS 0xf7
+
+/**
  * IIO channel macro for calibration values.
  * For triggered buffer reads, `scan_index` sets the position of this channel
  * data within the sample. `scan_type` tells that the channel data is unsigned,
@@ -54,11 +61,16 @@
 
 /**
  * IIO channels.
- * We make one channel available for each of the three calibration values,
- * plus one chanel for the raw, unprocessed, temperature value, and one channel
- * for the final, processed, temperature value.
+ * We make the following channels available:
+ *     * Three temperature calibration values.
+ *     * One raw temperature value.
+ *     * One final, processed temperature value.
+ *     * Nine pressure calibration values.
+ *     * One raw pressure value.
+ *     * One final, processed pressure value.
  * Within `/sys/bus/iio/devices/iio:deviceX/`, these will be:
- * `in_temp{0-3}_raw` and `in_temp_input`, respectively.
+ * `in_temp{0-3}_raw`, `in_temp_input`, `in_pressure{0-9}_raw`, and
+ * `in_pressure_input`, respectively.
  */
 static const struct iio_chan_spec bmp280_iio_channels[] = {
   // Temperature calibration values, refered to as dig_T1 to dig_T3 on the
@@ -84,7 +96,7 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
     // CPU's endianness.
     .scan_type = {
       .sign = 's',
-      .realbits = 24,
+      .realbits = 20,
       .storagebits = 32,
       .shift = 4,
       .endianness = IIO_CPU,
@@ -98,6 +110,66 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
     .indexed = 0,
     .info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED),
     .scan_index = 4,
+    // Channel data is signed (2 complement), takes up 32 bits,
+    // and follows the host CPU's endianness.
+    .scan_type = {
+      .sign = 's',
+      .realbits = 32,
+      .storagebits = 32,
+      .shift = 0,
+      .endianness = IIO_CPU,
+    },
+    .output = 0,
+  },
+  // Pressure calibration values, refered to as dig_P1 to dig_P9 on the
+  // datasheet. Corresponding sysfs files: `in_pressure{0-8}_raw`.
+  // Note: each calibration value is 16 bits, thus the address deltas.
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 0, 5,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS),
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 1, 6,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 2),
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 2, 7,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 4),
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 3, 8,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 6),
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 4, 9,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 8),
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 5, 10,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 10),
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 6, 11,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 12),
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 7, 12,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 14),
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 8, 13,
+			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 16),
+  // Raw pressure value, as directly read from the sensor.
+  // Corresponding sysfs file: `in_pressure9_raw`
+  {
+    .type = IIO_PRESSURE,
+    .indexed = 1,
+    .channel = 9,
+    .address = BMP280_PRESS_RAW_REG_ADDRESS,
+    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+    .scan_index = 14,
+    // Channel data is signed (2 complement), takes up 20 bits within a 32 bits
+    // field, with the 4 LS bits being padding bits, and follows the host
+    // CPU's endianness.
+    .scan_type = {
+      .sign = 's',
+      .realbits = 20,
+      .storagebits = 32,
+      .shift = 4,
+      .endianness = IIO_CPU,
+    },
+    .output = 0,
+  },
+  // Final "processed" pressure value.
+  // Corresponding sysfs file: `in_pressure_processed`
+  {
+    .type = IIO_PRESSURE,
+    .indexed = 0,
+    .info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED),
+    .scan_index = 15,
     // Channel data is signed (2 complement), takes up 32 bits,
     // and follows the host CPU's endianness.
     .scan_type = {
@@ -127,6 +199,8 @@ static int initialize_bmp280(struct i2c_client *client);
 static u16 read_bmp280_calibration_value(struct i2c_client *client, u8 reg_address);
 static s32 read_bmp280_raw_temperature(struct i2c_client *client);
 static s32 read_bmp280_processed_temperature(struct i2c_client *client);
+static s32 read_bmp280_raw_pressure(struct i2c_client *client);
+static s32 read_bmp280_processed_pressure(struct i2c_client *client);
 
 /**
  * Sets up an IIO device and registers it with the IIO subsystem.
@@ -174,24 +248,37 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
   struct i2c_client *client = *priv_data;
   switch (mask) {
   case IIO_CHAN_INFO_RAW:
-    if (0 <= chan->channel && chan->channel <= 2) {
-      // One of the three calibration values
+    if ((chan->type == IIO_TEMP && 0 <= chan->channel && chan->channel <= 2) ||
+	(chan->type == IIO_PRESSURE && 0 <= chan->channel && chan->channel <= 8)) {
+      // One of the calibration values
       *val = read_bmp280_calibration_value(client, chan->address);
-    } else if(chan->channel == 3) {
+    } else if (chan->type == IIO_TEMP && chan->channel == 3) {
       // Raw temperature value
       *val = read_bmp280_raw_temperature(client);
+    } else if (chan->type == IIO_PRESSURE && chan->channel == 9) {
+      // Raw pressure value
+      *val = read_bmp280_raw_pressure(client);
     } else {
-      pr_err("Unexpected IIO channel number %d\n", chan->channel);
+      pr_err("Unexpected IIO raw channel type/number combination %d/%d\n",
+	     chan->type, chan->channel);
       return -EINVAL;
     }
     return IIO_VAL_INT;
   case IIO_CHAN_INFO_PROCESSED:
-    // Processed temperature value. *val contains the temperature in
-    // 100ths of C. So we set *val2 and return IIO_VAL_FRACTIONAL such
-    // that the IIO core produces a fractional value to userspace.
-    *val = read_bmp280_processed_temperature(client);
-    *val2 = 100;
-    return IIO_VAL_FRACTIONAL;
+    if (chan->type == IIO_TEMP) {
+      // Processed temperature value. *val contains the temperature in
+      // 100ths of C. So we set *val2 and return IIO_VAL_FRACTIONAL such
+      // that the IIO core produces a fractional value to userspace.
+      *val = read_bmp280_processed_temperature(client);
+      *val2 = 100;
+      return IIO_VAL_FRACTIONAL;
+    } else if (chan->type == IIO_PRESSURE) {
+      *val = read_bmp280_processed_pressure(client);
+      return IIO_VAL_INT;
+    } else {
+      pr_err("Unexpected IIO processed channel type %d\n", chan->type);
+      return -EINVAL;
+    }
   default:
     pr_err("Unexpected IIO read mask %ld\n", mask);
     return -EINVAL;
@@ -292,4 +379,18 @@ static s32 read_bmp280_processed_temperature(struct i2c_client *client) {
   s32 var2 = (((((raw_temp >> 4) - dig_T1) * ((raw_temp >> 4) - dig_T1)) >> 12)
 	      * dig_T3) >> 14;
   return ((var1 + var2) * 5 + 128) >> 8;
+}
+
+/**
+ * Reads the raw pressure value from the sensor.
+ * It takes up the 20 MS bits of three consecutive 8 bit registers.
+ * We read the three registers at once so we don't run the risk of the sensor
+ * updating them while we are reading.
+ */
+static s32 read_bmp280_raw_pressure(struct i2c_client *client) {
+  return 0;
+}
+
+static s32 read_bmp280_processed_pressure(struct i2c_client *client) {
+  return 0;
 }
