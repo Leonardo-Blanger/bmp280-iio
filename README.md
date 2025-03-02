@@ -136,42 +136,42 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
     sudo modprobe bmp280-iio
     ```
 
-	I specified the `industrialio` kernel module as a dependency in the sources, so that module will be autmatically loaded as well.
+	I specified the `industrialio` kernel module as a dependency in the sources, so that module will be automatically loaded as well.
 
 	If you now run `lsmod | head`, you should be able to see our loaded `bmp280-iio` module listed at the top of the list. You can use `sudo rmmod bmp280-iio` (or `sudo modprobe -r bmp280-iio`) to unload it.
 
 1. **Verify Installation:**
 
-* Check for the IIO device:
+	* Check for the IIO device:
 
-    ```bash
-    ls /sys/bus/iio/devices/
-    ```
-    You should see a device named something like `iio:deviceX` (where X is a number). This represents your BMP280 sensor. You can check for the device name using:
+		```bash
+		ls /sys/bus/iio/devices/
+		```
+		You should see a device named something like `iio:deviceX` (where X is a number). This represents your BMP280 sensor. You can check for the device name using:
 
-	```bash
-	cat '/sys/bus/iio/devices/iio:device<X>/name'
-	```
-	The name should be `bmp280-iio`. This is useful in case you already had other IIO device directories.
+		```bash
+		cat '/sys/bus/iio/devices/iio:device<X>/name'
+		```
+		The name should be `bmp280-iio`. This is useful in case you already had other IIO device directories.
 
-*   Check for kernel messages:
+	* Check for kernel messages:
 
-    ```bash
-    dmesg | grep bmp280_iio
-    ```
-    You should see the following messages indicating the driver loaded and detected the sensor:
+		```bash
+		dmesg | grep bmp280_iio
+		```
+		You should see the following messages indicating the driver loaded and detected the sensor:
 
-	```
-	[...] bmp280_iio: loading out-of-tree module taints kernel.
-	[...] bmp280_iio: Probing the i2c driver.
-	[...] bmp280_iio: Probed i2c driver successfully.
-	```
+		```
+		[...] bmp280_iio: loading out-of-tree module taints kernel.
+		[...] bmp280_iio: Probing the i2c driver.
+		[...] bmp280_iio: Probed i2c driver successfully.
+		```
 
 1. **Automatic Loading on Boot (Optional):**
 
-* To automatically load the driver on boot, add `bmp280-iio` to the `/etc/modules` file.
+	* To automatically load the driver on boot, add `bmp280-iio` to the `/etc/modules` file.
 
-* To automatically load our DT overlay on boot, in addition to have it in your system wide `/boot/firmware/overlays` folder, you also need to add the overlay directive `dtoverlay=bmp280-iio` to the end of `/boot/firmware/config.txt`.
+	* To automatically load our DT overlay on boot, in addition to have it in your system wide `/boot/firmware/overlays` folder, you also need to add the overlay directive `dtoverlay=bmp280-iio` to the end of `/boot/firmware/config.txt`.
 
 ## Accessing Sensor Data
 
