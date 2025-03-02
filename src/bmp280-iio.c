@@ -1,36 +1,16 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/errno.h>
 #include <linux/i2c.h>
 #include <linux/iio/iio.h>
 #include <linux/kernel.h>
-#include <linux/mod_devicetable.h>
-#include <linux/module.h>
-#include <linux/moduleparam.h>
-#include <linux/of.h>
 #include <linux/printk.h>
 #include <linux/types.h>
 
-MODULE_AUTHOR("Leonardo Blanger");
-MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("An IIO compatible, I2C driver for the Bosch BMP280 "
-		   "temperature and pressure sensor.");
+#include "bmp280-iio.h"
 
 /**
- * The industrialio kernel module is a dependency.
- */
-MODULE_SOFTDEP("pre: industrialio");
-
-/**
- * Expected I2C address. Can be configured as a module parameter if your sensor
- * somehow has a different address.
- * E.g. `sudo insmod bmp280-iio.ko bmp280_i2c_address=<addr>`
- */
-static unsigned short bmp280_i2c_address = 0x76;
-module_param(bmp280_i2c_address, ushort, S_IRUGO);
-MODULE_PARM_DESC(bmp280_i2c_address, "I2C address for the BMP280 sensor");
-
-/**
- * Used as a sanity check during driver probing.
+ * Used as a sanity check during sensor initialization.
  * If we are really talking with a real BMP280 sensor, then reading from the
  * BMP280_ID_REG register will return us BMP280_ID.
  */
@@ -50,53 +30,10 @@ MODULE_PARM_DESC(bmp280_i2c_address, "I2C address for the BMP280 sensor");
 #define BMP280_TEMP_RAW_REG_ADDRESS 0xfa
 
 /**
- * Traditional device table matching approach.
- * Listed here for completness only, since we rely mostly on the device tree.
- */
-static const struct i2c_device_id bmp280_iio_i2c_driver_ids[] = {
-  {
-    .name = "leonardo,bmp280-iio",
-  },
-  { /* sentinel */ },
-};
-MODULE_DEVICE_TABLE(i2c, bmp280_iio_i2c_driver_ids);
-
-/**
- * Device Tree (OF = open firmware) based matching ids.
- */
-static const struct of_device_id bmp280_iio_of_driver_ids[] = {
-  {
-    .compatible = "leonardo,bmp280-iio",
-  },
-  { /* sentinel */ },
-};
-MODULE_DEVICE_TABLE(of, bmp280_iio_of_driver_ids);
-
-static int bmp280_iio_probe(struct i2c_client *client);
-static void bmp280_iio_remove(struct i2c_client *client);
-
-static struct i2c_driver bmp280_iio_driver = {
-  .probe = bmp280_iio_probe,
-  .remove = bmp280_iio_remove,
-  .id_table = bmp280_iio_i2c_driver_ids,
-  .driver = {
-    .name = "leonardo,bmp280-iio",
-    .of_match_table = of_match_ptr(bmp280_iio_of_driver_ids),
-  },
-};
-
-/**
- * This macro gets replaced by a module __init/__exit function pair,
- * that does nothing other than registering/unregistering the I2C driver.
-*/
-module_i2c_driver(bmp280_iio_driver);
-
-/**
  * IIO channel macro for calibration values.
- * For triggered buffer reads, `scan_index` sets the position of this channel's
- * data within the sample.
- * `scan_type` tells that the channel data is unsigned, takes up 16 bits without
- * any padding, and follows the CPU's endianness.
+ * For triggered buffer reads, `scan_index` sets the position of this channel
+ * data within the sample. `scan_type` tells that the channel data is unsigned,
+ * takes up 16 bits without any padding, and follows the CPU's endianness.
  */
 #define BMP280_CALIBR_CHANNNEL(channel_type, index, scan_idx, reg_address) { \
     .type = (channel_type),						\
@@ -125,7 +62,7 @@ module_i2c_driver(bmp280_iio_driver);
  */
 static const struct iio_chan_spec bmp280_iio_channels[] = {
   // Temperature calibration values, refered to as dig_T1 to dig_T3 on the
-  // datasheet. Corresponding sysfs files: `in_temp0_raw` to `in_temp2_raw.
+  // datasheet. Corresponding sysfs files: `in_temp{0-2}_raw`.
   // Note: each calibration value is 16 bits, thus the address deltas.
   BMP280_CALIBR_CHANNNEL(IIO_TEMP, 0, 0,
 			 BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS),
@@ -186,33 +123,20 @@ static const struct iio_info bmp280_iio_info = {
 };
 
 // BMP280 I2C communication methods
-void initialize_bmp280(struct i2c_client *client);
-u16 read_bmp280_calibration_value(struct i2c_client *client, u8 reg_address);
-s32 read_bmp280_raw_temperature(struct i2c_client *client);
-s32 read_bmp280_processed_temperature(struct i2c_client *client);
+static int initialize_bmp280(struct i2c_client *client);
+static u16 read_bmp280_calibration_value(struct i2c_client *client, u8 reg_address);
+static s32 read_bmp280_raw_temperature(struct i2c_client *client);
+static s32 read_bmp280_processed_temperature(struct i2c_client *client);
 
 /**
- * I2C driver probe.
- * Performs sanity checks on the client address, and sensor ID register,
- * then sets up an IIO device and registers it with the IIO subsystem.
+ * Sets up an IIO device and registers it with the IIO subsystem.
  */
-static int bmp280_iio_probe(struct i2c_client *client) {
-  pr_info("Probing the i2c driver.\n");
-  if (client->addr != bmp280_i2c_address) {
-    pr_err("Probed with unexpected I2C address 0x%02x. Expecting 0x%02x\n",
-	   client->addr, bmp280_i2c_address);
-    return -1;
+int register_bmp280_iio_device(struct i2c_client *client) {
+  int status = initialize_bmp280(client);
+  if (status) {
+    return status;
   }
-  // Try to read the sensor ID, and verify if it matches the expected BMP280 ID.
-  u8 sensor_id = i2c_smbus_read_byte_data(client, BMP280_ID_REG);
-  if (sensor_id != BMP280_ID) {
-    pr_err("Unexpected sensor id 0x%02x. Expecting 0x%02x\n",
-	   sensor_id, BMP280_ID);
-    return -1;
-  }
-  /* Initialize device */
-  initialize_bmp280(client);
-  // Set up IIO device structure.
+  // Allocate IIO device structure.
   // devm_* methods do not require corresponding free/unregister calls.
   // When client->dev is removed, the reverse operation happens automatically.
   struct iio_dev *indio_dev =
@@ -230,23 +154,12 @@ static int bmp280_iio_probe(struct i2c_client *client) {
   struct i2c_client **priv_data = iio_priv(indio_dev);
   *priv_data = client;
   // Register device with the IIO subsystem
-  int status = devm_iio_device_register(&client->dev, indio_dev);
+  status = devm_iio_device_register(&client->dev, indio_dev);
   if (status) {
     pr_err("Failed to register with IIO subsystem");
     return status;
   }
-  pr_info("Probed i2c driver successfully.\n");
   return 0;
-}
-
-/**
- * I2C driver remove.
- * We do not need to undo anything manually here, since we only used
- * "device managed" operations during probe, (i.e. devm_*() functions).
- * Those actions are automatically undone when client->dev is removed.
- */
-static void bmp280_iio_remove(struct i2c_client *client) {
-  pr_info("Removing the i2c driver.\n");
 }
 
 /**
@@ -286,7 +199,7 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
 }
 
 /**
- * Initializes the BMP280 sensor.
+ * Performs a device id sanity check, then initializes the BMP280 sensor.
  * We are using the following configuration:
  *     * maximum temperature and pressure oversampling (x16): this gives us
  * 20 bits of resolution.
@@ -295,7 +208,14 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
  *     * No filtering: disable data smoothing over time.
  *     * No 3-wire SPI: we only use I2C
  */
-void initialize_bmp280(struct i2c_client *client) {
+static int initialize_bmp280(struct i2c_client *client) {
+  // Try to read the sensor ID, and verify if it matches the expected BMP280 ID.
+  u8 sensor_id = i2c_smbus_read_byte_data(client, BMP280_ID_REG);
+  if (sensor_id != BMP280_ID) {
+    pr_err("Unexpected sensor id 0x%02x. Expecting 0x%02x\n",
+	   sensor_id, BMP280_ID);
+    return -1;
+  }
   // Maximum temperature oversampling (x16)
   u8 osrs_t = 0x5;
   // Maximum pressure oversampling (x16)
@@ -313,13 +233,14 @@ void initialize_bmp280(struct i2c_client *client) {
   u8 config = (t_sb << 5) | (filter << 2) | spi3w_en;
   i2c_smbus_write_byte_data(client, BMP280_CONFIG_REG_ADDRESS, config);
   i2c_smbus_write_byte_data(client, BMP280_CTRL_MEAS_REG_ADDRESS, ctrl_meas);
+  return 0;
 }
 
 /**
  * Reads one of BMP280's calibration values.
  * These are 16 bit values, from 0x88 to 0xa1 on the sensor register bank.
  */
-u16 read_bmp280_calibration_value(struct i2c_client *client, u8 reg_address) {
+static u16 read_bmp280_calibration_value(struct i2c_client *client, u8 reg_address) {
   return i2c_smbus_read_word_data(client, reg_address);
 }
 
@@ -329,7 +250,7 @@ u16 read_bmp280_calibration_value(struct i2c_client *client, u8 reg_address) {
  * We read the three registers at once so we don't run the risk of the sensor
  * updating them while we are reading.
  */
-s32 read_bmp280_raw_temperature(struct i2c_client *client) {
+static s32 read_bmp280_raw_temperature(struct i2c_client *client) {
   u8 values[3] = {0, 0, 0};
   i2c_smbus_read_i2c_block_data(client, BMP280_TEMP_RAW_REG_ADDRESS,
 				/*length=*/3, values);
@@ -348,7 +269,7 @@ s32 read_bmp280_raw_temperature(struct i2c_client *client) {
  * https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
  * (Section 3.11.3 - Compensation formula)
  */
-s32 read_bmp280_processed_temperature(struct i2c_client *client) {
+static s32 read_bmp280_processed_temperature(struct i2c_client *client) {
   s32 dig_T1 = read_bmp280_calibration_value(
         client, BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS);
   s32 dig_T2 = read_bmp280_calibration_value(

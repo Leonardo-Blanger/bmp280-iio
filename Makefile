@@ -2,7 +2,7 @@ MODULE_NAME := bmp280-iio
 SRC_DIR := src
 KERNEL_VERSION := $(shell uname -r)
 
-$(MODULE_NAME)-y := $(SRC_DIR)/$(MODULE_NAME).o
+$(MODULE_NAME)-y := $(SRC_DIR)/main.o $(SRC_DIR)/bmp280-iio.o
 obj-m += $(MODULE_NAME).o
 
 all: dtbo modules
