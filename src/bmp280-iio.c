@@ -170,10 +170,10 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
     .indexed = 0,
     .info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED),
     .scan_index = 15,
-    // Channel data is signed (2 complement), takes up 32 bits,
+    // Channel data is unsigned, takes up 32 bits,
     // and follows the host CPU's endianness.
     .scan_type = {
-      .sign = 's',
+      .sign = 'u',
       .realbits = 32,
       .storagebits = 32,
       .shift = 0,
@@ -198,9 +198,9 @@ static const struct iio_info bmp280_iio_info = {
 static int initialize_bmp280(struct i2c_client *client);
 static u16 read_bmp280_calibration_value(struct i2c_client *client, u8 reg_address);
 static s32 read_bmp280_raw_temperature(struct i2c_client *client);
-static s32 read_bmp280_processed_temperature(struct i2c_client *client);
 static s32 read_bmp280_raw_pressure(struct i2c_client *client);
-static s32 read_bmp280_processed_pressure(struct i2c_client *client);
+static s32 read_bmp280_processed_temperature(struct i2c_client *client);
+static u32 read_bmp280_processed_pressure(struct i2c_client *client);
 
 /**
  * Sets up an IIO device and registers it with the IIO subsystem.
@@ -271,14 +271,14 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
       // that the IIO core produces a fractional value to userspace.
       *val = read_bmp280_processed_temperature(client);
       *val2 = 100;
-      return IIO_VAL_FRACTIONAL;
     } else if (chan->type == IIO_PRESSURE) {
       *val = read_bmp280_processed_pressure(client);
-      return IIO_VAL_INT;
+      *val2 = 256;
     } else {
       pr_err("Unexpected IIO processed channel type %d\n", chan->type);
       return -EINVAL;
     }
+    return IIO_VAL_FRACTIONAL;
   default:
     pr_err("Unexpected IIO read mask %ld\n", mask);
     return -EINVAL;
@@ -350,13 +350,31 @@ static s32 read_bmp280_raw_temperature(struct i2c_client *client) {
 }
 
 /**
- * Computes the final temperature, in units of 1/100 degrees Celcius.
- * We do this using the calibration values and the conversion algorithm
- * described in the datasheet.
+ * Reads the raw pressure value from the sensor.
+ * It takes up the 20 MS bits of three consecutive 8 bit registers.
+ * We read the three registers at once so we don't run the risk of the sensor
+ * updating them while we are reading.
+ */
+static s32 read_bmp280_raw_pressure(struct i2c_client *client) {
+  u8 values[3] = {0, 0, 0};
+  i2c_smbus_read_i2c_block_data(client, BMP280_PRESS_RAW_REG_ADDRESS,
+				/*length=*/3, values);
+  s32 val1 = values[0];
+  s32 val2 = values[1];
+  s32 val3 = values[2];
+  // The LS 4 bits of val3 are irrelevant. We do not right shift on this method,
+  // we just return the raw value, as read from the sensor.
+  return ((val1 << 16) | (val2 << 8) | val3);
+}
+
+/**
+ * `t_fine` is an intermediate temperature value, required by both the final
+ * processed temperature, as well as for pressure computation. See the
+ * datasheet for details.
  * https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
  * (Section 3.11.3 - Compensation formula)
  */
-static s32 read_bmp280_processed_temperature(struct i2c_client *client) {
+static s32 read_bmp280_t_fine(struct i2c_client *client) {
   s32 dig_T1 = read_bmp280_calibration_value(
         client, BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS);
   s32 dig_T2 = read_bmp280_calibration_value(
@@ -378,19 +396,90 @@ static s32 read_bmp280_processed_temperature(struct i2c_client *client) {
   s32 var1 = (((raw_temp >> 3) - (dig_T1 << 1)) * dig_T2) >> 11;
   s32 var2 = (((((raw_temp >> 4) - dig_T1) * ((raw_temp >> 4) - dig_T1)) >> 12)
 	      * dig_T3) >> 14;
-  return ((var1 + var2) * 5 + 128) >> 8;
+  return var1 + var2;
 }
 
 /**
- * Reads the raw pressure value from the sensor.
- * It takes up the 20 MS bits of three consecutive 8 bit registers.
- * We read the three registers at once so we don't run the risk of the sensor
- * updating them while we are reading.
+ * Computes the final temperature, in units of 1/100 degrees Celcius.
+ * We do this using the calibration values and the conversion algorithm
+ * described in the datasheet.
+ * https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
+ * (Section 3.11.3 - Compensation formula)
  */
-static s32 read_bmp280_raw_pressure(struct i2c_client *client) {
-  return 0;
+static s32 read_bmp280_processed_temperature(struct i2c_client *client) {
+  return (read_bmp280_t_fine(client) * 5 + 128) >> 8;
 }
 
-static s32 read_bmp280_processed_pressure(struct i2c_client *client) {
-  return 0;
+/**
+ * Computes the final pressure, as an unsigned 32 bit integer,
+ * in units of 1/(1 << 8) Pascal.
+ * We do this using the calibration values and the conversion algorithm
+ * described in the datasheet.
+ * https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
+ * (Section 3.11.3 - Compensation formula)
+ */
+static u32 read_bmp280_processed_pressure(struct i2c_client *client) {
+  s64 dig_P1 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS);
+  s64 dig_P2 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 2);
+  s64 dig_P3 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 4);
+  s64 dig_P4 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 6);
+  s64 dig_P5 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 8);
+  s64 dig_P6 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 10);
+  s64 dig_P7 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 12);
+  s64 dig_P8 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 14);
+  s64 dig_P9 = read_bmp280_calibration_value(
+        client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 16);
+  s32 raw_press = read_bmp280_raw_pressure(client);
+  // dig_P1 should be treated as unsigned 16 bits, whereas dig_P2 to dig_P9
+  // should be treated as signed 16 bits.
+  if(dig_P2 > 32767) {
+    dig_P2 -= 65536;
+  }
+  if(dig_P3 > 32767) {
+    dig_P3 -= 65536;
+  }
+  if(dig_P4 > 32767) {
+    dig_P4 -= 65536;
+  }
+  if(dig_P5 > 32767) {
+    dig_P5 -= 65536;
+  }
+  if(dig_P6 > 32767) {
+    dig_P6 -= 65536;
+  }
+  if(dig_P7 > 32767) {
+    dig_P7 -= 65536;
+  }
+  if(dig_P8 > 32767) {
+    dig_P8 -= 65536;
+  }
+  if(dig_P9 > 32767) {
+    dig_P9 -= 65536;
+  }
+  // LS 4 bits of raw pressure are ignored.
+  raw_press >>= 4;  
+  s64 t_fine = read_bmp280_t_fine(client);
+  s64 var1 = t_fine - 128000;
+  s64 var2 = var1 * var1 * dig_P6;
+  var2 = var2 + ((var1 * dig_P5) << 17);
+  var2 = var2 + (dig_P4 << 35);
+  var1 = ((var1 * var1 * dig_P3) >> 8) + ((var1 * dig_P2) << 12);
+  var1 = ((((s64)1) << 47) + var1) * dig_P1 >> 33;
+  if (var1 == 0) {
+    return 0;
+  }
+  s64 p = 1048576 - raw_press;
+  p = (((p << 31) - var2) * 3125) / var1;
+  var1 = (dig_P9 * (p >> 13) * (p >> 13)) >> 25;
+  var2 = (dig_P8 * p) >> 19;
+  p = ((p + var1 + var2) >> 8) + (dig_P7 << 4);
+  return (u32)p;
 }
