@@ -37,20 +37,31 @@
 #define BMP280_PRESS_RAW_REG_ADDRESS 0xf7
 
 /**
+ * BMP280 context structure.
+ * dig_T and dig_P are the sensor's calibration values, which are constant for
+ * any given sensor, so we only read them once and keep store them here.
+ */
+struct bmp280_ctx {
+  struct i2c_client *client;
+  s32 dig_T[4];
+  s64 dig_P[10];
+};
+
+/**
  * IIO channel macro for calibration values.
  * For triggered buffer reads, `scan_index` sets the position of this channel
- * data within the sample. `scan_type` tells that the channel data is unsigned,
- * takes up 16 bits without any padding, and follows the CPU's endianness.
+ * data within the sample. `scan_type` tells that the channel data takes up 16
+ * bits without any padding, and follows the CPU's endianness.
  */
-#define BMP280_CALIBR_CHANNNEL(channel_type, index, scan_idx, reg_address) { \
-    .type = (channel_type),						\
+#define BMP280_CALIBR_CHANNNEL(_type, _index, _scan_index, _sign, _address) { \
+    .type = (_type),							\
     .indexed = 1,							\
-    .channel = (index),						        \
-    .address = (reg_address),						\
+    .channel = (_index),						\
+    .address = (_address),						\
     .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),			\
-    .scan_index = (scan_idx),						\
+    .scan_index = (_scan_index),					\
     .scan_type = {							\
-      .sign = 'u',							\
+      .sign = (_sign),							\
       .realbits = 16,							\
       .storagebits = 16,						\
       .shift = 0,							\
@@ -76,11 +87,11 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
   // Temperature calibration values, refered to as dig_T1 to dig_T3 on the
   // datasheet. Corresponding sysfs files: `in_temp{0-2}_raw`.
   // Note: each calibration value is 16 bits, thus the address deltas.
-  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 0, 0,
+  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 0, 0, 'u',
 			 BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS),
-  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 1, 1,
+  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 1, 1, 's',
 			 BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS + 2),
-  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 2, 2,
+  BMP280_CALIBR_CHANNNEL(IIO_TEMP, 2, 2, 's',
 			 BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS + 4),
   // Raw temperature value, as directly read from the sensor.
   // Corresponding sysfs file: `in_temp3_raw`
@@ -124,23 +135,23 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
   // Pressure calibration values, refered to as dig_P1 to dig_P9 on the
   // datasheet. Corresponding sysfs files: `in_pressure{0-8}_raw`.
   // Note: each calibration value is 16 bits, thus the address deltas.
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 0, 5,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 0, 5, 'u',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS),
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 1, 6,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 1, 6, 's',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 2),
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 2, 7,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 2, 7, 's',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 4),
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 3, 8,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 3, 8, 's',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 6),
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 4, 9,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 4, 9, 's',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 8),
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 5, 10,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 5, 10, 's',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 10),
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 6, 11,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 6, 11, 's',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 12),
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 7, 12,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 7, 12, 's',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 14),
-  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 8, 13,
+  BMP280_CALIBR_CHANNNEL(IIO_PRESSURE, 8, 13, 's',
 			 BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS + 16),
   // Raw pressure value, as directly read from the sensor.
   // Corresponding sysfs file: `in_pressure9_raw`
@@ -195,32 +206,27 @@ static const struct iio_info bmp280_iio_info = {
 };
 
 // BMP280 I2C communication methods
-static int initialize_bmp280(struct i2c_client *client);
-static int read_bmp280_calibration_values(struct i2c_client *client,
-					  u8 base_address, u8 n_read,
-					  u16 *values);
-static int read_bmp280_raw_temperature(struct i2c_client *client,
+static int setup_bmp280(struct i2c_client *client, struct bmp280_ctx *bmp280);
+static int initialize_bmp280(struct bmp280_ctx *bmp280);
+static int read_bmp280_calibration_values(struct bmp280_ctx *bmp280);
+static int read_bmp280_raw_temperature(struct bmp280_ctx *bmp280,
 				       s32 *raw_temp);
-static int read_bmp280_raw_pressure(struct i2c_client *client, s32 *raw_press);
-static int read_bmp280_processed_temperature(struct i2c_client *client,
+static int read_bmp280_raw_pressure(struct bmp280_ctx *bmp280, s32 *raw_press);
+static int read_bmp280_processed_temperature(struct bmp280_ctx *bmp280,
 					     s32 *temp);
-static int read_bmp280_processed_pressure(struct i2c_client *client,
+static int read_bmp280_processed_pressure(struct bmp280_ctx *bmp280,
 					  u32 *press);
 
 /**
  * Sets up an IIO device and registers it with the IIO subsystem.
  */
 int register_bmp280_iio_device(struct i2c_client *client) {
-  int status = initialize_bmp280(client);
-  if (status) {
-    return status;
-  }
   // Allocate IIO device structure.
   // devm_* methods do not require corresponding free/unregister calls.
   // When client->dev is removed, the reverse operation happens automatically.
   struct iio_dev *indio_dev =
     devm_iio_device_alloc(&client->dev,
-			  /*sizeof_priv*/sizeof(struct i2c_client *));
+			  /*sizeof_priv*/sizeof(struct bmp280_ctx));
   if (!indio_dev) {
     return -ENOMEM;
   }
@@ -229,9 +235,12 @@ int register_bmp280_iio_device(struct i2c_client *client) {
   indio_dev->modes = INDIO_DIRECT_MODE;
   indio_dev->channels = bmp280_iio_channels;
   indio_dev->num_channels = ARRAY_SIZE(bmp280_iio_channels);
-  // Make the I2C client available from our IIO device structure.
-  struct i2c_client **priv_data = iio_priv(indio_dev);
-  *priv_data = client;
+  struct bmp280_ctx *bmp280 = iio_priv(indio_dev);
+  int status = setup_bmp280(client, bmp280);
+  if (status) {
+    pr_err("Failed to setup BMP280 device.");
+    return status;
+  }
   // Register device with the IIO subsystem
   status = devm_iio_device_register(&client->dev, indio_dev);
   if (status) {
@@ -249,24 +258,20 @@ int register_bmp280_iio_device(struct i2c_client *client) {
 static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
 			       struct iio_chan_spec const *chan,
 			       int *val, int *val2, long mask) {
-  struct i2c_client **priv_data = iio_priv(indio_dev);
-  struct i2c_client *client = *priv_data;
+  struct bmp280_ctx *bmp280 = iio_priv(indio_dev);
   switch (mask) {
   case IIO_CHAN_INFO_RAW:
-    if ((chan->type == IIO_TEMP && 0 <= chan->channel && chan->channel <= 2) ||
-	(chan->type == IIO_PRESSURE && 0 <= chan->channel && chan->channel <= 8)) {
-      // One of the calibration values
-      u16 calib_value;
-      int status = read_bmp280_calibration_values(client, chan->address, 1,
-						  &calib_value);
-      if (status) {
-	return status;
-      }
-      *val = calib_value;
+    if (chan->type == IIO_TEMP && 0 <= chan->channel && chan->channel < 3) {
+      // One of the constant temperature calibration values.
+      *val = bmp280->dig_T[chan->channel + 1];
+    } else if (chan->type == IIO_PRESSURE &&
+	       0 <= chan->channel && chan->channel < 9) {
+      // One of the constant pressure calibration values.
+      *val = bmp280->dig_P[chan->channel + 1];
     } else if (chan->type == IIO_TEMP && chan->channel == 3) {
       // Raw temperature value
       s32 raw_temp;
-      int status = read_bmp280_raw_temperature(client, &raw_temp);
+      int status = read_bmp280_raw_temperature(bmp280, &raw_temp);
       if (status) {
 	return status;
       }
@@ -274,7 +279,7 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
     } else if (chan->type == IIO_PRESSURE && chan->channel == 9) {
       // Raw pressure value
       s32 raw_press;
-      int status = read_bmp280_raw_pressure(client, &raw_press);
+      int status = read_bmp280_raw_pressure(bmp280, &raw_press);
       if (status) {
 	return status;
       }
@@ -291,7 +296,7 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
       // 100ths of C. So we set *val2 and return IIO_VAL_FRACTIONAL such
       // that the IIO core produces a fractional value to userspace.
       s32 temp;
-      int status = read_bmp280_processed_temperature(client, &temp);
+      int status = read_bmp280_processed_temperature(bmp280, &temp);
       if (status) {
 	return status;
       }
@@ -302,7 +307,7 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
       // 1/256 of Pascal. So we set *val2 and return IIO_VAL_FRACTIONAL such
       // that the IIO core produces a fractional value to userspace.
       u32 press;
-      int status = read_bmp280_processed_pressure(client, &press);
+      int status = read_bmp280_processed_pressure(bmp280, &press);
       if (status) {
 	return status;
       }
@@ -320,6 +325,25 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
 }
 
 /**
+ * Calls sensor initialization functions, then reads the constant calibration
+ * values from the sensor and sets the BMP280 context structure.
+ */
+static int setup_bmp280(struct i2c_client *client, struct bmp280_ctx *bmp280) {
+  // Make the I2C client available from the context structure
+  bmp280->client = client;
+  // Initialize sensor
+  int status = initialize_bmp280(bmp280);
+  if (status) {
+    return status;
+  }
+  status = read_bmp280_calibration_values(bmp280);
+  if (status) {
+    return status;
+  }
+  return 0;
+}
+
+/**
  * Performs a device id sanity check, then initializes the BMP280 sensor.
  * We are using the following configuration:
  *     * maximum temperature and pressure oversampling (x16): this gives us
@@ -329,13 +353,13 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
  *     * No filtering: disable data smoothing over time.
  *     * No 3-wire SPI: we only use I2C
  */
-static int initialize_bmp280(struct i2c_client *client) {
+static int initialize_bmp280(struct bmp280_ctx *bmp280) {
   // Try to read the sensor ID, and verify if it matches the expected BMP280 ID.
-  u8 sensor_id = i2c_smbus_read_byte_data(client, BMP280_ID_REG);
+  u8 sensor_id = i2c_smbus_read_byte_data(bmp280->client, BMP280_ID_REG);
   if (sensor_id != BMP280_ID) {
     pr_err("Unexpected sensor id 0x%02x. Expecting 0x%02x\n",
 	   sensor_id, BMP280_ID);
-    return -1;
+    return -ENODEV;
   }
   // Maximum temperature oversampling (x16)
   u8 osrs_t = 0x5;
@@ -352,26 +376,55 @@ static int initialize_bmp280(struct i2c_client *client) {
   // These options are combined into the ctrl_meas and config registers
   u8 ctrl_meas = (osrs_t << 5) | (osrs_p << 2) | mode;
   u8 config = (t_sb << 5) | (filter << 2) | spi3w_en;
-  i2c_smbus_write_byte_data(client, BMP280_CONFIG_REG_ADDRESS, config);
-  i2c_smbus_write_byte_data(client, BMP280_CTRL_MEAS_REG_ADDRESS, ctrl_meas);
+  i2c_smbus_write_byte_data(bmp280->client, BMP280_CONFIG_REG_ADDRESS, config);
+  i2c_smbus_write_byte_data(bmp280->client, BMP280_CTRL_MEAS_REG_ADDRESS,
+			    ctrl_meas);
   return 0;
 }
 
 /**
- * Reads `n_read` of BMP280's calibration values, starting at `base_address`.
- * These are 16 bit values, from 0x88 to 0xa1 on the sensor register bank.
+ * Reads the BMP280 constant calibration values, and stores them in the context
+ * structure's dig_T and dig_P fields.
+ * These are 16 bit values, stored from 0x88 to 0xa1 on the sensor register
+ * bank.
  */
-static int read_bmp280_calibration_values(struct i2c_client *client,
-					  u8 base_address, u8 n_read,
-					  u16 *values) {
-  // length is the number of bytes to read.
-  // Each calibration value takes up two bytes
-  s32 read = i2c_smbus_read_i2c_block_data(client, base_address,
-					   2*n_read, (u8*)values);
-  if (read != 2*n_read) {
-    pr_err("Expected to read %b calibration bytes. Read %d instead\n",
-	   2*n_read, read);
+static int read_bmp280_calibration_values(struct bmp280_ctx *bmp280) {
+  // Read all temperature calibration values, then all pressure calibration
+  // values, to minimize the number of I2C reads during setup.
+  // Note: `n_read` is specified in bytes.
+  u16 temp_calib_buffer[3];
+  s32 read = i2c_smbus_read_i2c_block_data(
+      bmp280->client, BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS, 
+      /*n_read=*/3 * 2, (u8 *)temp_calib_buffer);
+  if (read != 3 * 2) {
+    pr_err("Expected 6 temperature calibration bytes. Read %d instead\n", read);
     return -EIO;
+  }
+  u16 press_calib_buffer[9];
+  read = i2c_smbus_read_i2c_block_data(
+      bmp280->client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS,
+      /*n_read=*/9 * 2, (u8 *)press_calib_buffer);
+  if (read != 9 * 2) {
+    pr_err("Expected 6 pressure calibration bytes. Read %d instead\n", read);
+    return -EIO;
+  }
+  // ignoring index zero to match the indexes starting from 1 in the
+  // datasheet algorithm.
+  bmp280->dig_T[0] = 0;
+  bmp280->dig_P[0] = 0;
+  // dig_T1 and dig_P1 should be treated as unsigned 16 bits, whereas all other
+  // calibration values should be treated as signed 16 bits.
+  for (int i = 1; i <= 3; i++) {
+    bmp280->dig_T[i] = temp_calib_buffer[i-1];
+    if(i != 1 && bmp280->dig_T[i] > 32767) {
+      bmp280->dig_T[i] -= 65536;
+    }
+  }
+  for (int i = 1; i <= 9; i++) {
+    bmp280->dig_P[i] = press_calib_buffer[i-1];
+    if(i != 1 && bmp280->dig_P[i] > 32767) {
+      bmp280->dig_P[i] -= 65536;
+    }
   }
   return 0;
 }
@@ -382,11 +435,11 @@ static int read_bmp280_calibration_values(struct i2c_client *client,
  * We read the three registers at once so we don't run the risk of the sensor
  * updating them while we are reading.
  */
-static int read_bmp280_raw_temperature(struct i2c_client *client,
+static int read_bmp280_raw_temperature(struct bmp280_ctx *bmp280,
 				       s32 *raw_temp) {
   u8 values[3] = {0, 0, 0};
-  s32 read = i2c_smbus_read_i2c_block_data(client, BMP280_TEMP_RAW_REG_ADDRESS,
-					   /*length=*/3, values);
+  s32 read = i2c_smbus_read_i2c_block_data(
+      bmp280->client, BMP280_TEMP_RAW_REG_ADDRESS, /*length=*/3, values);
   if (read != 3) {
     pr_err("Expected to read 3 raw temperature bytes. Read %d instead\n", read);
     return -EIO;
@@ -406,11 +459,11 @@ static int read_bmp280_raw_temperature(struct i2c_client *client,
  * We read the three registers at once so we don't run the risk of the sensor
  * updating them while we are reading.
  */
-static int read_bmp280_raw_pressure(struct i2c_client *client,
+static int read_bmp280_raw_pressure(struct bmp280_ctx *bmp280,
 				    s32 *raw_press) {
   u8 values[3] = {0, 0, 0};
-  s32 read = i2c_smbus_read_i2c_block_data(client, BMP280_PRESS_RAW_REG_ADDRESS,
-					   /*length=*/3, values);
+  s32 read = i2c_smbus_read_i2c_block_data(
+      bmp280->client, BMP280_PRESS_RAW_REG_ADDRESS, /*length=*/3, values);
   if (read != 3) {
     pr_err("Expected to read 3 raw pressure bytes. Read %d instead\n", read);
     return -EIO;
@@ -446,91 +499,37 @@ static s32 compute_bmp280_t_fine(s32 raw_temp, const s32 dig_T[]) {
  * https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
  * (Section 3.11.3 - Compensation formula)
  */
-static int read_bmp280_processed_temperature(struct i2c_client *client, s32 *temp) {
-  // Different from the pressure, here we only need temperature registers in
-  // order to compute the final temperature value. Therefore, we only read the
-  // temperature calibration and raw values, to minimize the amount of data
-  // transfered over I2C.
-  u16 calib_buffer[3];
-  int status = read_bmp280_calibration_values(
-      client, BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS, 3, calib_buffer);
+static int read_bmp280_processed_temperature(struct bmp280_ctx *bmp280, s32 *temp) {
+  s32 raw_temp;
+  int status = read_bmp280_raw_temperature(bmp280, &raw_temp);
   if (status) {
     return status;
   }
-  s32 dig_T[4];
-  // ignoring index zero match the indexes in the datasheet algorithm
-  dig_T[0] = 0;
-  // dig_T1, dig_T2, and dig_T3 should be treated as unsigned, signed, and
-  // signed, 16 bits numbers, respectively.
-  for (int i = 1; i <= 3; i++) {
-    dig_T[i] = calib_buffer[i-1];
-    if(i != 1 && dig_T[i] > 32767) {
-      dig_T[i] -= 65536;
-    }
-  }
-  u8 values[3];
-  int read = i2c_smbus_read_i2c_block_data(client, BMP280_TEMP_RAW_REG_ADDRESS,
-					   /*length=*/3, values);
-  if (read != 3) {
-    return -EIO;
-  }
-  s32 t1 = values[0];
-  s32 t2 = values[1];
-  s32 t3 = values[2];
-  s32 raw_temp = (t1 << 16) | (t2 << 8) | t3;
   // LS 4 bits of raw temperature are ignored.
   raw_temp >>= 4;
-  *temp = (compute_bmp280_t_fine(raw_temp, dig_T) * 5 + 128) >> 8;
+  *temp = (compute_bmp280_t_fine(raw_temp, bmp280->dig_T) * 5 + 128) >> 8;
   return 0;
 }
 
 /**
  * Computes the final pressure, as an unsigned 32 bit integer,
- * in units of 1/(1 << 8) Pascal.
+ * in units of 1 / 256 Pascal.
  * We do this using the calibration values and the conversion algorithm
  * described in the datasheet.
  * https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
  * (Section 3.11.3 - Compensation formula)
  */
-static int read_bmp280_processed_pressure(struct i2c_client *client, u32 *press) {
-  // We need both the temperature and the pressure calibration values to compute
-  // the final pressure. Temperature registers come before. We read all of them
-  // at once to minimize the number of I2C reads.
-  u16 calib_buffer[12];
-  int status = read_bmp280_calibration_values(
-      client, BMP280_TEMP_CALIBRATION_BASE_REG_ADDRESS, 12, calib_buffer);
-  if (status) {
-    return status;
-  }
-  s32 dig_T[4];
-  // ignoring index zero match the indexes in the datasheet algorithm
-  dig_T[0] = 0;
-  // dig_T1, dig_T2, and dig_T3 should be treated as unsigned, signed, and
-  // signed, 16 bits numbers, respectively.
-  for (int i = 1; i <= 3; i++) {
-    dig_T[i] = calib_buffer[i-1];
-    if(i != 1 && dig_T[i] > 32767) {
-      dig_T[i] -= 65536;
-    }
-  }
-  s64 dig_P[10];
-  // ignoring index zero to match the indexes in the datasheet algorithm
-  dig_P[0] = 0;
-  // dig_P1 should be treated as unsigned 16 bits, whereas dig_P2 to dig_P9
-  // should be treated as signed 16 bits.
-  for (int i = 1; i <= 9; i++) {
-    dig_P[i] = calib_buffer[2+i];
-    if(i != 1 && dig_P[i] > 32767) {
-      dig_P[i] -= 65536;
-    }
-  }
+static int read_bmp280_processed_pressure(struct bmp280_ctx *bmp280, u32 *press) {
   // We need both the raw temperature, and the raw pressure values to compute
   // the final pressure. Pressure registers come before. We read all of them
-  // at once to minimize the number of I2C reads.
+  // at once to avoid the risk of the sensor chaning either of them in between
+  // reads.
   u8 values[6];
-  int read = i2c_smbus_read_i2c_block_data(client, BMP280_PRESS_RAW_REG_ADDRESS,
-					   /*length=*/6, values);
+  int read = i2c_smbus_read_i2c_block_data(
+      bmp280->client, BMP280_PRESS_RAW_REG_ADDRESS, /*length=*/6, values);
   if (read != 6) {
+    pr_err("Expected to read 6 temperature/pressure bytes. Read %d instead\n",
+	   read);
     return -EIO;
   }
   s32 p1 = values[0];
@@ -544,22 +543,23 @@ static int read_bmp280_processed_pressure(struct i2c_client *client, u32 *press)
   // LS 4 bits of raw temperature and pressure are ignored.
   raw_press >>= 4;
   raw_temp >>= 4;
-  s64 t_fine = compute_bmp280_t_fine(raw_temp, dig_T);
+  s64 t_fine = compute_bmp280_t_fine(raw_temp, bmp280->dig_T);
   s64 var1 = t_fine - 128000;
-  s64 var2 = var1 * var1 * dig_P[6];
-  var2 = var2 + ((var1 * dig_P[5]) << 17);
-  var2 = var2 + (dig_P[4] << 35);
-  var1 = ((var1 * var1 * dig_P[3]) >> 8) + ((var1 * dig_P[2]) << 12);
-  var1 = ((((s64)1) << 47) + var1) * dig_P[1] >> 33;
+  s64 var2 = var1 * var1 * bmp280->dig_P[6];
+  var2 = var2 + ((var1 * bmp280->dig_P[5]) << 17);
+  var2 = var2 + (bmp280->dig_P[4] << 35);
+  var1 = (((var1 * var1 * bmp280->dig_P[3]) >> 8) +
+	  ((var1 * bmp280->dig_P[2]) << 12));
+  var1 = ((((s64)1) << 47) + var1) * bmp280->dig_P[1] >> 33;
   if (var1 == 0) {
     *press = 0;
     return 0;
   }
   s64 p = 1048576 - raw_press;
   p = (((p << 31) - var2) * 3125) / var1;
-  var1 = (dig_P[9] * (p >> 13) * (p >> 13)) >> 25;
-  var2 = (dig_P[8] * p) >> 19;
-  p = ((p + var1 + var2) >> 8) + (dig_P[7] << 4);
+  var1 = (bmp280->dig_P[9] * (p >> 13) * (p >> 13)) >> 25;
+  var2 = (bmp280->dig_P[8] * p) >> 19;
+  p = ((p + var1 + var2) >> 8) + (bmp280->dig_P[7] << 4);
   *press = (u32)p;
   return 0;
 }
