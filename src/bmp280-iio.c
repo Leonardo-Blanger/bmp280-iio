@@ -8,7 +8,7 @@
 #include <linux/printk.h>
 #include <linux/types.h>
 
-#include "bmp280-iio.h"
+#include "bmp280.h"
 
 /**
  * Used as a sanity check during sensor initialization.

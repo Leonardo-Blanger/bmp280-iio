@@ -15,7 +15,7 @@
 #include <linux/printk.h>
 #include <linux/stat.h>
 
-#include "bmp280-iio.h"
+#include "bmp280.h"
 
 MODULE_AUTHOR("Leonardo Blanger");
 MODULE_LICENSE("GPL");
