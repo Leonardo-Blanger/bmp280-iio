@@ -181,9 +181,10 @@ The important files are:
 
 * `in_temp0_raw` to `in_temp2_raw`: Raw temperature calibration readings.
 * `in_temp3_raw`: Raw temperature reading. Its meaning depends on the calibration values.
+* `in_pressure0_raw` to `in_pressure8_raw`: Raw pressure calibration readings.
+* `in_pressure9_raw`: Raw pressure reading. It's meaning depends on the calibration values.
 * `in_temp_input`: This is the final, processed temperature value, in degrees Celcius.
-
-TODO: List the sysfs files for pressure as well, once those are implemented.
+* `in_pressure_input`: This is the final, processed pressure value, in Pascal.
 
 ### Example
 
@@ -192,12 +193,13 @@ $ cat /sys/bus/iio/devices/iio:device0/name
 bmp280-iio
 
 $ cat /sys/bus/iio/devices/iio:device0/in_temp_input
-21.500000000
+20.960000000
+
+$ cat /sys/bus/iio/devices/iio:device0/in_pressure_input
+101422.062500000
 ```
 
-The sensor tells me that it reads 21.5 C on my room.
-
-TODO: Add an example for pressure reading as well.
+The sensor tells me that it reads 20.96 C, and ~1014 hPa on my room.
 
 ## License
 
