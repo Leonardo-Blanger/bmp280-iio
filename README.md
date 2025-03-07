@@ -201,6 +201,129 @@ $ cat /sys/bus/iio/devices/iio:device0/in_pressure_input
 
 The sensor tells me that it reads 20.96 C, and ~1014 hPa on my room.
 
+## IIO Triggered Buffer Capture
+
+This driver supports IIO triggered buffers, allowing you to capture sensor data at a specific rate, triggered by certain events. This is more efficient than continuously repeatedly reading the above mentioned files.
+
+### Setting up the Trigger
+
+IIO supports several different types of trigger. Common types include:
+
+* **hrtimer triggers:** Based on high resolution timers. Can be used to trigger capture at regular time intervals.
+
+* **sysfstrig:** A software trigger controlled through sysfs. This allows you to manually configure and trigger data capture by writing to specific sysfs files.
+
+#### Using hrtimer (Example):
+
+1. Load the iio_hrtimer module:
+
+   ``` bash
+   sudo modprobe iio_hrtimer
+   ```
+
+   You should see a new trigger (e.g., `trigger1`) in `/sys/bus/iio/devices`.
+
+1. Set the sampling frequency (in nanoseconds). For 1 Hz (adjust for your trigger name):
+
+   ``` bash
+   echo 1000000000 > /sys/bus/iio/devices/trigger1/frequency
+   ```
+
+#### Using sysfstrig (Example):
+
+To create a sysfs trigger, write a number to the following sysfs file:
+
+``` bash
+echo 0 > /sys/bus/iio/devices/iio_sysfs_trigger/add_trigger
+```
+
+You should see a new trigger, (e.g., `triggerY`) `/sys/bus/iio/devices`, where `Y` is the number you wrote. You can then trigger a buffer capture at any time:
+
+``` bash
+echo 1 > /sys/bus/iio/devices/trigger0/trigger_now
+```
+
+You can remove the trigger by writing the same number `Y` to this sysfs file:
+
+``` bash
+echo 0 > /sys/bus/iio/devices/iio_sysfs_trigger/remove_trigger
+```
+
+### Associating the Trigger with our Device
+
+Regardless of the trigger type, you associate it with the our device by writting it's name attribute to our device's `trigger/current_trigger`.
+
+``` bash
+cat /sys/bus/iio/devices/trigger0/name > /sys/bus/iio/devices/iio:device0/trigger/current_trigger
+```
+
+You can disassociate the trigger from the device by writting an empty string to the same file.
+
+``` bash
+echo "" > /sys/bus/iio/devices/iio:device0/trigger/current_trigger
+```
+
+### Configuring the Device Buffer
+
+You control which channels are captured using files in your device's `scan_elements` folder. Write any non zero value to the `*_en` files to enable the respective channels, or 0 to disable them.
+
+Enable the channels you want to capture. For instance, to enable processed (final) temperature and pressure values, do:
+
+``` bash
+echo 1 > /sys/bus/iio/devices/iio:device0/scan_elements/in_temp_en
+echo 1 > /sys/bus/iio/devices/iio:device0/scan_elements/in_pressure_en
+```
+
+You can also check other buffer configurations on `scan_elements`. Reading from the `*_index` files returns the index of channels in the capture. The captured data from enabled channels is written into the buffer sorted by this index. For instance, for our two enabled channels:
+
+``` bash
+$ cat /sys/bus/iio/devices/iio:device0/scan_elements/in_temp_index
+4
+
+$ cat /sys/bus/iio/devices/iio:device0/scan_elements/in_pressure_index
+15
+```
+
+This means the final temperature is stored first on the buffer, followed by the final pressure.
+
+Reading from the `*_type` files in `scan_elements` returns the format the captured data for each channel is stored in the buffer. For instance, on my RPi:
+
+``` bash
+$ cat /sys/bus/iio/devices/iio:device0/scan_elements/in_temp_type 
+le:s32/32>>0"
+
+$ cat /sys/bus/iio/devices/iio:device0/scan_elements/in_pressure_type 
+le:s32/32>>0"
+```
+
+You interpret this as: Little Endian data (`le`), signed (`s`), taking a payload of `32` bits, out of a `32` bits field, requiring no right bit shift (`>>0`).
+
+### Triggering a Data Capture
+
+Enable the buffer:
+
+``` bash
+echo 1 > /sys/bus/iio/devices/iio:device0/buffer/enable
+```
+
+If you are using hrtimers, data is already being captured at the specified frequency. If you are using a sysfs manual trigger, you can trigger a capture with (run it as many times as you want samples):
+
+``` bash
+echo 1 > /sys/bus/iio/devices/trigger0/trigger_now
+```
+
+Disable the buffer:
+
+``` bash
+echo 0 > /sys/bus/iio/devices/iio:device0/buffer/enable
+```
+
+### Reading from the Buffer
+
+TODO: Describe using the /dev file and hexdump
+
+TODO: Describe using iio-utils toolset
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
