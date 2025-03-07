@@ -1,8 +1,12 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/device.h>
 #include <linux/errno.h>
 #include <linux/i2c.h>
 #include <linux/iio/iio.h>
+#include <linux/iio/triggered_buffer.h>
+#include <linux/iio/trigger_consumer.h>
+#include <linux/iio/trigger.h>
 #include <linux/iio/types.h>
 #include <linux/kernel.h>
 #include <linux/printk.h>
@@ -160,6 +164,7 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
 static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
 			       struct iio_chan_spec const *chan,
 			       int *val, int *val2, long mask);
+static irqreturn_t bmp280_iio_trigger_handler(int irq, void *p);
 
 /**
  * IIO hooks. We only need to read from the device.
@@ -181,9 +186,10 @@ int register_bmp280_iio_device(struct i2c_client *client) {
   if (!indio_dev) {
     return -ENOMEM;
   }
+  indio_dev->dev.parent = &client->dev;
   indio_dev->name = client->name;
   indio_dev->info = &bmp280_iio_info;
-  indio_dev->modes = INDIO_DIRECT_MODE;
+  indio_dev->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_TRIGGERED;
   indio_dev->channels = bmp280_iio_channels;
   indio_dev->num_channels = ARRAY_SIZE(bmp280_iio_channels);
   struct bmp280_ctx *bmp280 = iio_priv(indio_dev);
@@ -192,10 +198,23 @@ int register_bmp280_iio_device(struct i2c_client *client) {
     pr_err("Failed to setup BMP280 device.");
     return status;
   }
+  // iio_pollfunc_store_type is the top-half IRQ handler, which means it runs in
+  // interrupt context. It is defined by the IIO core, and its only work is to
+  // record the current timestamp.
+  // bmp280_iio_trigger_handler is our bottom half, which does the real trigger
+  // handling. It runs in a kernel thread, which means we can perform operations
+  // that might block, like talking with the sensor over I2C.
+  status = devm_iio_triggered_buffer_setup(&client->dev, indio_dev,
+					   iio_pollfunc_store_time,
+					   bmp280_iio_trigger_handler, NULL);
+  if (status) {
+    pr_err("Failed to setup IIO triggered buffer support.");
+    return status;
+  }
   // Register device with the IIO subsystem
   status = devm_iio_device_register(&client->dev, indio_dev);
   if (status) {
-    pr_err("Failed to register with IIO subsystem");
+    pr_err("Failed to register with IIO subsystem.");
     return status;
   }
   return 0;
@@ -203,23 +222,21 @@ int register_bmp280_iio_device(struct i2c_client *client) {
 
 /**
  * IIO driver's read method.
- * This method identifies which of the IIO sysfs files is being read from,
- * and assembles the result from sensor specific methos declared above.
+ * This method identifies which of the IIO channels is being requested,
+ * and assembles the result from sensor specific methos.
  */
-static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int *val, int *val2, long mask) {
+static int bmp280_iio_read_from_channel(struct iio_dev *indio_dev,
+					struct iio_chan_spec const *chan,
+					int *val, int *val2) {
   struct bmp280_ctx *bmp280 = iio_priv(indio_dev);
-  switch (mask) {
-  case IIO_CHAN_INFO_RAW:
-    if (chan->type == IIO_TEMP && 0 <= chan->channel && chan->channel < 3) {
+  if (chan->type == IIO_TEMP) {
+    if (iio_channel_has_info(chan, IIO_CHAN_INFO_RAW) && chan->indexed &&
+	0 <= chan->channel && chan->channel < 3) {
       // One of the constant temperature calibration values.
       *val = bmp280->dig_T[chan->channel + 1];
-    } else if (chan->type == IIO_PRESSURE &&
-	       0 <= chan->channel && chan->channel < 9) {
-      // One of the constant pressure calibration values.
-      *val = bmp280->dig_P[chan->channel + 1];
-    } else if (chan->type == IIO_TEMP && chan->channel == 3) {
+      return IIO_VAL_INT;      
+    } else if (iio_channel_has_info(chan, IIO_CHAN_INFO_RAW) && chan->indexed &&
+	       chan->channel == 3) {
       // Raw temperature value
       s32 raw_temp;
       int status = read_bmp280_raw_temperature(bmp280, &raw_temp);
@@ -227,24 +244,10 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
 	return status;
       }
       *val = raw_temp;
-    } else if (chan->type == IIO_PRESSURE && chan->channel == 9) {
-      // Raw pressure value
-      s32 raw_press;
-      int status = read_bmp280_raw_pressure(bmp280, &raw_press);
-      if (status) {
-	return status;
-      }
-      *val = raw_press;
-    } else {
-      pr_err("Unexpected IIO raw channel type/number combination %d/%d\n",
-	     chan->type, chan->channel);
-      return -EINVAL;
-    }
-    return IIO_VAL_INT;
-  case IIO_CHAN_INFO_PROCESSED:
-    if (chan->type == IIO_TEMP) {
+      return IIO_VAL_INT;
+    } else if (iio_channel_has_info(chan, IIO_CHAN_INFO_PROCESSED)) {
       // Processed temperature value. *val contains the temperature in
-      // 100ths of C. So we set *val2 and return IIO_VAL_FRACTIONAL such
+      // 100ths of Celcius. So we set *val2 and return IIO_VAL_FRACTIONAL such
       // that the IIO core produces a fractional value to userspace.
       s32 temp;
       int status = read_bmp280_processed_temperature(bmp280, &temp);
@@ -253,7 +256,28 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
       }
       *val = temp;
       *val2 = 100;
-    } else if (chan->type == IIO_PRESSURE) {
+      return IIO_VAL_FRACTIONAL;
+    } else {
+      pr_err("Unexpected temperature channel\n");
+      return -EINVAL;
+    }
+  } else if(chan->type == IIO_PRESSURE) {
+    if (iio_channel_has_info(chan, IIO_CHAN_INFO_RAW) && chan->indexed &&
+	0 <= chan->channel && chan->channel < 9) {
+      // One of the constant pressure calibration values.
+      *val = bmp280->dig_P[chan->channel + 1];
+      return IIO_VAL_INT;
+    } else if (iio_channel_has_info(chan, IIO_CHAN_INFO_RAW) && chan->indexed &&
+	       chan->channel == 9) {
+      // Raw pressure value
+      s32 raw_press;
+      int status = read_bmp280_raw_pressure(bmp280, &raw_press);
+      if (status) {
+	return status;
+      }
+      *val = raw_press;
+      return IIO_VAL_INT;
+    } else if (iio_channel_has_info(chan, IIO_CHAN_INFO_PROCESSED)) {
       // Processed pressure value. *val contains the pressure in
       // 1/256 of Pascal. So we set *val2 and return IIO_VAL_FRACTIONAL such
       // that the IIO core produces a fractional value to userspace.
@@ -264,13 +288,84 @@ static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
       }
       *val = press;
       *val2 = 256;
+      return IIO_VAL_FRACTIONAL;
     } else {
-      pr_err("Unexpected IIO processed channel type %d\n", chan->type);
+      pr_err("Unexpected pressure channel\n");
       return -EINVAL;
     }
-    return IIO_VAL_FRACTIONAL;
-  default:
-    pr_err("Unexpected IIO read mask %ld\n", mask);
+  } else {
+    pr_err("Unexpected channel type: %d\n", chan->type);
     return -EINVAL;
   }
+}
+
+/**
+ * IIO driver's read method.
+ * This method is callbed when directly reading from the sysfs channel files.
+ */
+static int bmp280_iio_read_raw(struct iio_dev *indio_dev,
+			       struct iio_chan_spec const *chan,
+			       int *val, int *val2, long mask) {
+  return bmp280_iio_read_from_channel(indio_dev, chan, val, val2);
+}
+
+/**
+ * IIO driver's triggered buffered handler.
+ * This method is called (in a separate kernel thread), for each fired trigger,
+ * when using triggered buffer mode.
+ * It computes the result for each of a subset of enabled channels,
+ * and assembles them together into a buffer, according to each channel's
+ * scan_type information.
+ */
+static irqreturn_t bmp280_iio_trigger_handler(int irq, void *p) {
+  struct iio_poll_func *pf = (struct iio_poll_func *)p;
+  struct iio_dev *indio_dev = pf->indio_dev;
+  void *data = kzalloc(indio_dev->scan_bytes, GFP_KERNEL);
+  if (!data) {
+    pr_err("Failed allocating memory during trigger handling.\n");
+    goto trigger_notify;
+  }
+  void *data_ptr = data;
+  int i;
+  for_each_set_bit(i, indio_dev->active_scan_mask, indio_dev->num_channels) {
+    const struct iio_chan_spec *chan = &indio_dev->channels[i];
+    int val, val2; // val2 is not used here.
+    int status = bmp280_iio_read_from_channel(indio_dev, chan, &val, &val2);
+    if (status < 0) {
+      pr_err("Failed to read from channel #%d.\n", i);
+      goto free_data;
+    }
+    // Store data, handling the possible data types.
+    if (chan->scan_type.storagebits == 16) {
+      if (chan->scan_type.sign == 's') {
+	*((s16 *)data_ptr) = (s16)val;
+      } else {
+	*((u16 *)data_ptr) = (u16)val;
+      }
+      data_ptr += 2; // Advance 16 bits
+    } else if (chan->scan_type.storagebits == 32) {
+      if (chan->scan_type.sign == 's') {
+	*((s32 *)data_ptr) = (s32)val;
+	/* pr_info("Wrote %d\n", *((s32 *)data_ptr)); */
+      } else {
+	*((u32 *)data_ptr) = (u32)val;
+	/* pr_info("Wrote %u\n", *((u32 *)data_ptr)); */
+      }
+      data_ptr += 4; // Advance 32 bits
+    } else {
+      pr_err("Unexpected channel storage bits %d.\n",
+	     chan->scan_type.storagebits);
+      goto free_data;
+    }
+  }
+  int status = iio_push_to_buffers(indio_dev, data);
+  if (status) {
+    pr_err("Failed to push data to IIO buffers.\n");
+    goto free_data;
+  }
+ free_data:
+  kfree(data);
+ trigger_notify:
+  iio_trigger_notify_done(indio_dev->trig);
+  return IRQ_HANDLED;
 }
