@@ -215,19 +215,19 @@ IIO supports several different types of trigger. Common types include:
 
 #### Using hrtimer (Example):
 
-1. Load the iio_hrtimer module:
+Load the iio_hrtimer module:
 
-   ``` bash
-   sudo modprobe iio_hrtimer
-   ```
+``` bash
+sudo modprobe iio_hrtimer
+```
 
-   You should see a new trigger (e.g., `trigger1`) in `/sys/bus/iio/devices`.
+You should see a new trigger (e.g., `trigger1`) in `/sys/bus/iio/devices`.
 
-1. Set the sampling frequency (in nanoseconds). For 1 Hz (adjust for your trigger name):
+Next, set the sampling frequency (in nanoseconds). For 1 Hz (adjust for your trigger name):
 
-   ``` bash
-   echo 1000000000 > /sys/bus/iio/devices/trigger1/frequency
-   ```
+``` bash
+echo 1000000000 > /sys/bus/iio/devices/trigger1/frequency
+```
 
 #### Using sysfstrig (Example):
 
