@@ -1,15 +1,15 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/device.h>
 #include <linux/errno.h>
+#include <linux/find.h>
 #include <linux/i2c.h>
+#include <linux/iio/buffer.h>
 #include <linux/iio/iio.h>
-#include <linux/iio/triggered_buffer.h>
 #include <linux/iio/trigger_consumer.h>
-#include <linux/iio/trigger.h>
 #include <linux/iio/types.h>
 #include <linux/kernel.h>
 #include <linux/printk.h>
+#include <linux/slab.h>
 #include <linux/types.h>
 
 #include "bmp280.h"
@@ -346,10 +346,8 @@ static irqreturn_t bmp280_iio_trigger_handler(int irq, void *p) {
     } else if (chan->scan_type.storagebits == 32) {
       if (chan->scan_type.sign == 's') {
 	*((s32 *)data_ptr) = (s32)val;
-	/* pr_info("Wrote %d\n", *((s32 *)data_ptr)); */
       } else {
 	*((u32 *)data_ptr) = (u32)val;
-	/* pr_info("Wrote %u\n", *((u32 *)data_ptr)); */
       }
       data_ptr += 4; // Advance 32 bits
     } else {
