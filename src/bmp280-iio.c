@@ -83,7 +83,7 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
     .output = 0,
   },
   // Final "processed" temperature value.
-  // Corresponding sysfs file: `in_temp_processed`
+  // Corresponding sysfs file: `in_temp_input`
   {
     .type = IIO_TEMP,
     .indexed = 0,
@@ -143,7 +143,7 @@ static const struct iio_chan_spec bmp280_iio_channels[] = {
     .output = 0,
   },
   // Final "processed" pressure value.
-  // Corresponding sysfs file: `in_pressure_processed`
+  // Corresponding sysfs file: `in_pressure_input`
   {
     .type = IIO_PRESSURE,
     .indexed = 0,

@@ -207,7 +207,7 @@ This driver supports IIO triggered buffers, allowing you to capture sensor data 
 
 When using triggered buffers, note that the final temperature and pressure values are not scaled like the ones we get by reading `sysfs` channel files directly. The temperature is returned in units of 1/100 degrees Celcius, while the pressure is returned in units of 1/256 Pascal, so make sure to divide them by 100 and 256, respectively, before interpreting them. You can read the comments in `src/bmp280.h` for more details.
 
-> **Note:** You might face permission issues when trying to write to some of the sysfs files mentioned in this section, even when running commands with sudo. You can get around this issue by either switching to a root shell (not recommended), with `sudo su`, or by running your commands using bash "command string" mode, and then invoking bash as sudo. E.g:
+**Note:** You might face permission issues when trying to write to some of the sysfs files mentioned in this section, even when running commands with sudo. You can get around this issue by either switching to a root shell (not recommended), with `sudo su`, or by running your commands using bash "command string" mode, and then invoking bash as sudo. E.g:
 
 ``` bash
 sudo bash -c '<your original command here>'
