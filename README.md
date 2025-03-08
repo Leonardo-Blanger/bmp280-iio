@@ -205,6 +205,14 @@ The sensor tells me that it reads 20.96 C, and ~1014 hPa on my room.
 
 This driver supports IIO triggered buffers, allowing you to capture sensor data at a specific rate, triggered by certain events. This is more efficient than continuously repeatedly reading the above mentioned files.
 
+When using triggered buffers, note that the final temperature and pressure values are not scaled like the ones we get by reading `sysfs` channel files directly. The temperature is returned in units of 1/100 degrees Celcius, while the pressure is returned in units of 1/256 Pascal, so make sure to divide them by 100 and 256, respectively, before interpreting them. You can read the comments in `src/bmp280.h` for more details.
+
+> **Note:** You might face permission issues when trying to write to some of the sysfs files mentioned in this section, even when running commands with sudo. You can get around this issue by either switching to a root shell (not recommended), with `sudo su`, or by running your commands using bash "command string" mode, and then invoking bash as sudo. E.g:
+
+``` bash
+sudo bash -c '<your original command here>'
+```
+
 ### Setting up the Trigger
 
 IIO supports several different types of trigger. Common types include:
@@ -332,7 +340,17 @@ echo 0 > /sys/bus/iio/devices/iio:device0/buffer/enable
 
 ### Reading from the Buffer
 
-TODO: Describe using the /dev file and hexdump
+You can access the captured data by reading from your device's `/dev` endpoint. You can do that both while samples are pushed into the buffer, as well as after the buffer is disabled. You can use `hexdump` to quickly visualize the data. For instance, with our buffer configuration, after triggering the capture 4 times, we have:
+
+``` bash
+$ sudo cat /dev/iio:device0 | hexdump
+0000000 07f1 0000 e433 018f 07f1 0000 e750 018f
+0000010 07f0 0000 e595 018f 07f1 0000 e478 018f
+```
+
+`hexdump` will only print a new line every 16 new bytes, and the first number it prints is the offset for the current read. Notice that our temperature and pressure are 32 bit fields (`scan_elements/*_type`, see above), so triggering 4 captures gives us two rows of data. `hexdump` by default prints a hexadecimal reading for each group of two consecutive bytes.
+
+From `scan_elements/in_temp_type`, we have that our final temperature type string is `le:s32/32>>0`. This means it takes up 32 bits, or 2 consecutive groups above, so the first temperature value is `07f1 0000`. Since this is Little Endian, you should read the groups in reverse, i.e. `000007f1`, or 2033. After dividing by 100, we have that the first temperature reading is 20.33 C. With a similar reasoning, the first pressure value (`e433 018f`), is interpreted as 26207283/256, or ~102372 Pascal.
 
 TODO: Describe using iio-utils toolset
 
