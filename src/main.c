@@ -3,7 +3,8 @@
  * It sets up an I2C driver for the BMP280 as a kernel module. On the probe
  * method, it exposes an IIO device.
  * This file contains all the module definition and I2C driver code. The logic
- * for IIO support, and for the BMP280 handling, is in `bmp280-iio.c`.
+ * for IIO support is in `bmp280-iio.c`, while the logic for talking with the
+ * BMP280 sensor is in `bmp280.c`.
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
