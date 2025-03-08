@@ -214,7 +214,7 @@ The sensor tells me that it reads 20.96 C, and ~1014 hPa on my room.
 
 ## IIO Triggered Buffer Capture
 
-This driver supports IIO triggered buffers, allowing you to capture sensor data at a specific rate, triggered by certain events. This is more efficient than continuously repeatedly reading the above mentioned files.
+This driver supports IIO triggered buffers, allowing you to capture sensor data at a specific rate, or triggered by certain events. This is more efficient than repeatedly reading the above mentioned files.
 
 When using triggered buffers, note that the final temperature and pressure values are not scaled like the ones we get by reading `sysfs` channel files directly. The temperature is returned in units of 1/100 degrees Celcius, while the pressure is returned in units of 1/256 Pascal, so make sure to divide them by 100 and 256, respectively, before interpreting them. You can read the comments in `src/bmp280.h` for more details.
 
@@ -371,11 +371,11 @@ $ cat /dev/iio:device0 | hexdump
 0000010 07f0 0000 e595 018f 07f1 0000 e478 018f
 ```
 
-`hexdump` will only print a new line every 16 new bytes, and the first number it prints is the offset for the current read. Notice that our temperature and pressure are 32 bit fields (`scan_elements/*_type`, see above), so triggering 4 captures gives us two rows of data. `hexdump` by default prints a hexadecimal reading for each group of two consecutive bytes.
+`hexdump` will only print a new line every 16 new bytes, and the first number it prints on each line is the offset for the current read. Notice that our temperature and pressure are 32 bit fields (`scan_elements/*_type`, see above), so triggering 4 captures gives us two rows of data. `hexdump` by default prints a hexadecimal reading for each group of two consecutive bytes.
 
 From `scan_elements/in_temp_type`, we have that our final temperature type string is `le:s32/32>>0`. This means it takes up 32 bits, or 2 consecutive groups above, so the first temperature value is `07f1 0000`. Since this is Little Endian, you should read the groups in reverse, i.e. `000007f1`, or 2033. After dividing by 100, we have that the first temperature reading is 20.33 C. With a similar reasoning, the first pressure value (`e433 018f`), is interpreted as 26207283/256, or ~1023.72 hecto-Pascal.
 
-TODO: Describe using iio-utils toolset
+A note on padding. Depending on the size of the channels you select, the IIO subsystem might pad each sample with zero bytes at the end. I believe it does this to have captured samples cache aligned, or some other performance reason. On my system, it seems to always make the sample size a multiple of 4 bytes. Before using this buffered data, you should make sure you know how much padding each sample has. You can do that by comparing how many bytes you have per sample, with how many you expect to have from the `scan_elements/*_type` strings.
 
 ## License
 
