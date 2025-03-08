@@ -231,6 +231,12 @@ echo 1000000000 > /sys/bus/iio/devices/trigger1/frequency
 
 #### Using sysfstrig (Example):
 
+Load the `iio-trig-sysfs` module:
+
+``` bash
+sudo modprobe iio-trig-sysfs
+```
+
 To create a sysfs trigger, write a number to the following sysfs file:
 
 ``` bash
@@ -265,7 +271,7 @@ echo "" > /sys/bus/iio/devices/iio:device0/trigger/current_trigger
 
 ### Configuring the Device Buffer
 
-You control which channels are captured using files in your device's `scan_elements` folder. Write any non zero value to the `*_en` files to enable the respective channels, or 0 to disable them.
+You control which channels are captured using files in your device's `scan_elements` folder. Write any non zero value to the `scan_elements/*_en` files to enable the respective channels, or 0 to disable them.
 
 Enable the channels you want to capture. For instance, to enable processed (final) temperature and pressure values, do:
 
@@ -274,7 +280,7 @@ echo 1 > /sys/bus/iio/devices/iio:device0/scan_elements/in_temp_en
 echo 1 > /sys/bus/iio/devices/iio:device0/scan_elements/in_pressure_en
 ```
 
-You can also check other buffer configurations on `scan_elements`. Reading from the `*_index` files returns the index of channels in the capture. The captured data from enabled channels is written into the buffer sorted by this index. For instance, for our two enabled channels:
+You can also check other buffer configurations inside `scan_elements`. Reading from `scan_elements/*_index` returns the index of channels in the capture. The captured data from enabled channels is written into the buffer sorted by this index. For instance, for our two enabled channels:
 
 ``` bash
 $ cat /sys/bus/iio/devices/iio:device0/scan_elements/in_temp_index
@@ -286,19 +292,25 @@ $ cat /sys/bus/iio/devices/iio:device0/scan_elements/in_pressure_index
 
 This means the final temperature is stored first on the buffer, followed by the final pressure.
 
-Reading from the `*_type` files in `scan_elements` returns the format the captured data for each channel is stored in the buffer. For instance, on my RPi:
+Reading from `scan_elements/*_type` returns the format that the captured data for each channel is stored in the buffer. For instance:
 
 ``` bash
 $ cat /sys/bus/iio/devices/iio:device0/scan_elements/in_temp_type 
-le:s32/32>>0"
+le:s32/32>>0
 
 $ cat /sys/bus/iio/devices/iio:device0/scan_elements/in_pressure_type 
-le:s32/32>>0"
+le:u32/32>>0
 ```
 
-You interpret this as: Little Endian data (`le`), signed (`s`), taking a payload of `32` bits, out of a `32` bits field, requiring no right bit shift (`>>0`).
+You interpret this as: Little Endian data (`le`), signed/unsigned (`s`/`u`), taking a payload of `32` bits, out of a `32` bits field, requiring no right bit shift (`>>0`).
 
 ### Triggering a Data Capture
+
+Set the buffer size. This is the number of that will fit in the buffer before you must read older values. For instance:
+
+``` bash
+echo 100 > /sys/bus/iio/devices/iio:device0/buffer/length
+```
 
 Enable the buffer:
 
