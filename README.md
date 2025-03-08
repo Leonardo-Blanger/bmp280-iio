@@ -116,10 +116,8 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 1. **Load the DT Overlay**
 
 	```bash
-	sudo dtoverlay bmp280-iio.ko
+	sudo dtoverlay bmp280-iio.dtbo
 	```
-	You can omit the `.ko` extension if you copied the overlay to your system overlays directory.
-
 	If you now run `dtoverlay -l`, you should be able to see our module listed. You can also use `sudo dtoverlay -r bmp280-iio` to unload it.
 
 1. **Load the Module:**
