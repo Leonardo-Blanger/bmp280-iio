@@ -136,6 +136,8 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 	sudo modprobe industrialio-triggered-buffer
 	```
 
+	And then load our module with:
+
     ```bash
     sudo insmod bmp280-iio.ko
     ```
