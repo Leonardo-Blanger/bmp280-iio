@@ -129,6 +129,13 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 1. **Load the Module:**
 
+	The IIO subsystem is also shipped as a set of modules on Raspberry Pi OS. You can load our main dependencies with:
+
+	```bash
+	sudo modprobe industrialio
+	sudo modprobe industrialio-triggered-buffer
+	```
+
     ```bash
     sudo insmod bmp280-iio.ko
     ```
@@ -138,7 +145,7 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
     sudo modprobe bmp280-iio
     ```
 
-	I specified the `industrialio` kernel module as a dependency in the sources, so that module will be automatically loaded as well.
+	The dependency modules above are loaded automatically if you used `make modules_install`.
 
 	If you now run `lsmod | head`, you should be able to see our loaded `bmp280-iio` module listed at the top of the list. You can use `sudo rmmod bmp280-iio` (or `sudo modprobe -r bmp280-iio`) to unload it.
 
