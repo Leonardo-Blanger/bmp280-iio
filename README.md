@@ -180,7 +180,7 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 1. **Automatic Loading on Boot (Optional):**
 
-	* To automatically load the driver on boot, add `bmp280-iio` to the `/etc/modules` file.
+	* To automatically load the driver on boot, make sure you installed the module on the correct system directory with `sudo make modules_install`, and then add `bmp280-iio` to the `/etc/modules` file.
 
 	* To automatically load our DT overlay on boot, in addition to have it in your system wide `/boot/firmware/overlays` folder, you also need to add the overlay directive `dtoverlay=bmp280-iio` to the end of `/boot/firmware/config.txt`.
 
