@@ -20,7 +20,7 @@ Instead of a simple character device, this driver uses the [IIO framework](https
 ## Prerequisites
 
 ### **Raspberry Pi and Accessories**
-Tested only on Raspberry Pi 5., although it should work on other platforms if you are familiar enough with that platform's Device Tree. It will also need a breadboard and four male to female jumper wires.
+Tested only on Raspberry Pi 5, although it should work on other platforms if you are familiar enough with that platform's Device Tree. You will also need a breadboard and four male to female jumper wires.
 
 ### **BMP280 Sensor**
 
@@ -38,9 +38,9 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 ## System Setup
 
-* **I2C Enabled:** Make sure I2C is enabled on your Raspberry Pi. You can do this using `raspi-config` (Interface Options -> I2C -> Enable) or by manually editing `/boot/firmware/config.txt` and ensuring `dtparam=i2c_arm=on` is present (and not commented out). Reboot after enabling.
+* **I2C Enabled:** Make sure I2C is enabled on your Raspberry Pi. You can do this using `sudo raspi-config` (Interface Options -> I2C -> Enable) or by manually editing `/boot/firmware/config.txt` and ensuring `dtparam=i2c_arm=on` is present (and not commented out). Reboot after enabling.
 
-* **`i2c-dev` module**: This is useful in order to make sure you wired up your sensor the right way. The `i2c-dev` kernel module gives userspace access to I2C. For each I2C bus on the system, this module exposes a `/dev/ic2-X` chrdev file. It comes with Raspberry Pi OS, and you can load it with:
+* **`i2c-dev` module**: This is useful in order to make sure you wired up your sensor the right way. The `i2c-dev` kernel module gives userspace access to I2C. For each I2C bus on the system, this module exposes a `/dev/i2c-X` chrdev file. It comes with Raspberry Pi OS, and you can load it with:
 
 	```bash
     sudo modprobe i2c-dev
@@ -53,7 +53,6 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 * **`i2c-tools`**: The i2c-tools package provides a set of command-line utilities that make it easier to communicate with I2C devices from userspace using the `i2c-dev` exposed files. You can install it on Raspberry Pi OS using:
 
 	```bash
-	sudo apt update
 	sudo apt install i2c-tools
 	```
 
@@ -66,7 +65,6 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 1. **Linux Kernel Headers:** You will need the kernel headers for your running kernel. Install them using:
 
 	```bash
-    sudo apt update
     sudo apt install raspberrypi-kernel-headers
     ```
 
@@ -75,7 +73,6 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 2. **Build Dependencies:** You will need a set of dependencies to build kernel modules and device tree overlays. On the Raspberry Pi OS, you can install them with:
 
 	```bash
-	sudo apt update
 	sudo apt install git make build-essential device-tree-compiler
 	```
 
