@@ -24,7 +24,8 @@ MODULE_DESCRIPTION("An IIO compatible, I2C driver for the Bosch BMP280 "
 		   "temperature and pressure sensor.");
 
 /**
- * The industrialio kernel module is a dependency.
+ * The industrialio and industrialio-triggered-buffer kernel modules are hard
+ * dependencies.
  */
 MODULE_SOFTDEP("pre: industrialio industrialio-triggered-buffer");
 
@@ -96,9 +97,9 @@ static int bmp280_iio_probe(struct i2c_client *client) {
 /**
  * I2C driver remove.
  * We do not need to undo anything manually here.
- * `initialize_bmp280` and `register_bmp280_iio_device` are both written to use
- * only "device managed" operations, (i.e. devm_*() functions).
- * Those actions are automatically undone when client->dev is removed.
+ * `register_bmp280_iio_device` is written to use only "device managed"
+ * operations, (i.e. devm_*() functions). Those actions are automatically undone
+ * when client->dev is removed.
  */
 static void bmp280_iio_remove(struct i2c_client *client) {
   pr_info("Removing the i2c driver.\n");

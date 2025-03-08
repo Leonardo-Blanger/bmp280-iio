@@ -199,7 +199,7 @@ int register_bmp280_iio_device(struct i2c_client *client) {
     pr_err("Failed to setup BMP280 device.");
     return status;
   }
-  // iio_pollfunc_store_type is the top-half IRQ handler, which means it runs in
+  // iio_pollfunc_store_time is the top-half IRQ handler, which means it runs in
   // interrupt context. It is defined by the IIO core, and its only work is to
   // record the current timestamp.
   // bmp280_iio_trigger_handler is our bottom half, which does the real trigger

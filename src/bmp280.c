@@ -69,7 +69,7 @@ static int read_bmp280_calibration_values(struct bmp280_ctx *bmp280) {
       bmp280->client, BMP280_PRESS_CALIBRATION_BASE_REG_ADDRESS,
       /*n_read=*/9 * 2, (u8 *)press_calib_buffer);
   if (read != 9 * 2) {
-    pr_err("Expected 6 pressure calibration bytes. Read %d instead\n", read);
+    pr_err("Expected 18 pressure calibration bytes. Read %d instead\n", read);
     return -EIO;
   }
   // ignoring index zero to match the indexes starting from 1 in the
