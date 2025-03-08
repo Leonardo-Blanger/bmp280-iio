@@ -237,10 +237,10 @@ mkdir /sys/kernel/config/iio/triggers/hrtimer/my-trigger
 
 You should now see a new trigger (e.g., `triggerY`) in `/sys/bus/iio/devices`, where `Y` is some number.
 
-Next, set the sampling frequency (in nanoseconds). For 1 Hz (adjust for your trigger name):
+Next, set the sampling frequency (in nanoseconds). For 50 Hz:
 
 ``` bash
-echo 1000000000 > /sys/bus/iio/devices/trigger0/sampling_frequency
+echo 50 > /sys/bus/iio/devices/trigger0/sampling_frequency
 ```
 
 You can remove the trigger by removing the sysfs directory created earlier:
@@ -293,7 +293,7 @@ echo "" > /sys/bus/iio/devices/iio:device0/trigger/current_trigger
 
 You control which channels are captured using files in your device's `scan_elements` folder. Write any non zero value to the `scan_elements/*_en` files to enable the respective channels, or 0 to disable them.
 
-Enable the channels you want to capture. For instance, to enable processed (final) temperature and pressure values, do:
+Enable the channels you want to capture. For instance, to enable processed (final) temperature and pressure values, run:
 
 ``` bash
 echo 1 > /sys/bus/iio/devices/iio:device0/scan_elements/in_temp_en
@@ -326,7 +326,7 @@ You interpret this as: Little Endian data (`le`), signed/unsigned (`s`/`u`), tak
 
 ### Triggering a Data Capture
 
-Set the buffer size. This is the number of that will fit in the buffer before you must read older values. For instance:
+Set the buffer size. This is the number of samples that will fit in the buffer before you must read older samples. For instance:
 
 ``` bash
 echo 100 > /sys/bus/iio/devices/iio:device0/buffer/length
@@ -355,14 +355,14 @@ echo 0 > /sys/bus/iio/devices/iio:device0/buffer/enable
 You can access the captured data by reading from your device's `/dev` endpoint. You can do that both while samples are pushed into the buffer, as well as after the buffer is disabled. You can use `hexdump` to quickly visualize the data. For instance, with our buffer configuration, after triggering the capture 4 times, we have:
 
 ``` bash
-$ sudo cat /dev/iio:device0 | hexdump
+$ cat /dev/iio:device0 | hexdump
 0000000 07f1 0000 e433 018f 07f1 0000 e750 018f
 0000010 07f0 0000 e595 018f 07f1 0000 e478 018f
 ```
 
 `hexdump` will only print a new line every 16 new bytes, and the first number it prints is the offset for the current read. Notice that our temperature and pressure are 32 bit fields (`scan_elements/*_type`, see above), so triggering 4 captures gives us two rows of data. `hexdump` by default prints a hexadecimal reading for each group of two consecutive bytes.
 
-From `scan_elements/in_temp_type`, we have that our final temperature type string is `le:s32/32>>0`. This means it takes up 32 bits, or 2 consecutive groups above, so the first temperature value is `07f1 0000`. Since this is Little Endian, you should read the groups in reverse, i.e. `000007f1`, or 2033. After dividing by 100, we have that the first temperature reading is 20.33 C. With a similar reasoning, the first pressure value (`e433 018f`), is interpreted as 26207283/256, or ~102372 Pascal.
+From `scan_elements/in_temp_type`, we have that our final temperature type string is `le:s32/32>>0`. This means it takes up 32 bits, or 2 consecutive groups above, so the first temperature value is `07f1 0000`. Since this is Little Endian, you should read the groups in reverse, i.e. `000007f1`, or 2033. After dividing by 100, we have that the first temperature reading is 20.33 C. With a similar reasoning, the first pressure value (`e433 018f`), is interpreted as 26207283/256, or ~1023.72 hecto-Pascal.
 
 TODO: Describe using iio-utils toolset
 
