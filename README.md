@@ -118,7 +118,14 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 	```bash
 	sudo dtoverlay bmp280-iio.dtbo
 	```
-	If you now run `dtoverlay -l`, you should be able to see our module listed. You can also use `sudo dtoverlay -r bmp280-iio` to unload it.
+	If you now run `dtoverlay -l`, you should be able to see our overlay listed. You can also use `sudo dtoverlay -r bmp280-iio` to unload it.
+
+	In case your sensor had a different I2C address, you can ovewrite it on the overlay when loading.
+
+	```bash
+	sudo dtoverlay bmp280-iio.dtbo address=<your sensor I2C address>
+	```
+	You could also achieve this by replacing `0x76` in `bmp280-iio.dts` with your sensor address before compiling.
 
 1. **Load the Module:**
 
