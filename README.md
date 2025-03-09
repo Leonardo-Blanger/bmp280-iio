@@ -118,7 +118,7 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 	```bash
 	sudo dtoverlay bmp280-iio.dtbo
 	```
-	If you now run `dtoverlay -l`, you should be able to see our overlay listed. You can also use `sudo dtoverlay -r bmp280-iio` to unload it.
+	You can omit the `.dtbo` extension if copied it to your system's overlay directory. If you now run `dtoverlay -l`, you should be able to see our overlay listed. You can also use `sudo dtoverlay -r bmp280-iio` to unload it.
 
 	In case your sensor had a different I2C address, you can override it on the overlay when loading.
 
@@ -187,7 +187,7 @@ Ensure it's properly connected to your Raspberry Pi's I2C-1 bus. These should be
 
 1. **Automatic Loading on Boot (Optional):**
 
-	* To automatically load the driver on boot, make sure you installed the module on the correct system directory with `sudo make modules_install`, and then add `bmp280-iio` to the `/etc/modules` file.
+	* To automatically load the driver on boot, make sure you installed the module on the correct system directory with `sudo make modules_install`, and then add `bmp280-iio` to the `/etc/modules` file. Again, in this case, the dependency modules mentioned above are loaded automatically.
 
 	* To automatically load our DT overlay on boot, in addition to have it in your system wide `/boot/firmware/overlays` folder, you also need to add the overlay directive `dtoverlay=bmp280-iio` to the end of `/boot/firmware/config.txt`.
 
@@ -221,7 +221,7 @@ The sensor tells me that it reads 20.96 C, and ~1014 hPa on my room.
 
 ## IIO Triggered Buffer Capture
 
-This driver supports IIO triggered buffers, allowing you to capture sensor data at a specific rate, or triggered by certain events. This is more efficient than repeatedly reading the above mentioned files.
+This driver supports IIO triggered buffers, allowing you to capture sensor data at a specified rate, or triggered by certain events. This is more efficient than repeatedly reading the above mentioned files.
 
 When using triggered buffers, note that the final temperature and pressure values are not scaled like the ones we get by reading `sysfs` channel files directly. The temperature is returned in units of 1/100 degrees Celcius, while the pressure is returned in units of 1/256 Pascal, so make sure to divide them by 100 and 256, respectively, before interpreting them. You can read the comments in `src/bmp280.h` for more details.
 
@@ -241,7 +241,7 @@ IIO supports several different types of trigger. Common types include:
 
 #### Using hrtimer (Example):
 
-Load the `iio-trig-hrtimer` module:
+Load the `iio-trig-hrtimer` module (or list it on `/etc/modules` so it loads on boot):
 
 ``` bash
 sudo modprobe iio-trig-hrtimer
@@ -269,7 +269,7 @@ rm -r /sys/kernel/config/iio/triggers/hrtimer/my-trigger
 
 #### Using sysfstrig (Example):
 
-Load the `iio-trig-sysfs` module:
+Load the `iio-trig-sysfs` module (or list it on `/etc/modules` so it loads on boot):
 
 ``` bash
 sudo modprobe iio-trig-sysfs
@@ -370,7 +370,7 @@ echo 0 > /sys/bus/iio/devices/iio:device0/buffer/enable
 
 ### Reading from the Buffer
 
-You can access the captured data by reading from your device's `/dev` endpoint. You can do that both while samples are pushed into the buffer, as well as after the buffer is disabled. You can use `hexdump` to quickly visualize the data. For instance, with our buffer configuration, after triggering the capture 4 times, we have:
+You can access the captured data by reading from your device's `/dev` endpoint. You can do that either while samples are pushed into the buffer, as well as after the buffer is disabled. You can use `hexdump` to quickly visualize the data. For instance, with our buffer configuration, after triggering the capture 4 times, we have:
 
 ``` bash
 $ cat /dev/iio:device0 | hexdump
