@@ -386,7 +386,7 @@ A note on padding. Depending on the size of the channels you select, the IIO sub
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the GPLv2 License - see the LICENSE file for details.
 
 ## References
 
