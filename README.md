@@ -392,6 +392,8 @@ This project is licensed under the GPLv2 License - see the LICENSE file for deta
 
 Some resources I found useful as I was learning about these topics:
 
+* The [BMP280 Datasheet](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf).
+
 * *Linux Kernel Programming - Second Edition*, by Kaiwan N. Billimoria, 2024.
 
 	The best resource I came across about the Linux Kernel. It's a long and very thorough technical read, but absolutely worth it. It's also very up to date, with a 2024 edition. Recomended for anyone wanting to start learning about the Linux Kernel.
