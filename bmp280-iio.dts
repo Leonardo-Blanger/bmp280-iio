@@ -26,6 +26,8 @@
 	compatible = "leonardo,bmp280-iio";
 	reg = <0x76>; // Replace 76 with your sensor's I2C address
 	label = "Leonardo's BMP280 I2C IIO driver";
+	// To expose the IIO channels to the rest of the kernel
+	#io-channel-cells = <1>;
       };
     };
   };
