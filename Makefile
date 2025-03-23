@@ -14,6 +14,7 @@ all: dtbo modules
 
 dtbo: $(MODULE_NAME).dts
 	dtc -@ -I dts -O dtb -o $(MODULE_NAME).dtbo $(MODULE_NAME).dts
+	dtc -@ -I dts -O dtb -o $(MONITOR_NAME).dtbo $(MONITOR_SRC_DIR)/$(MONITOR_NAME).dts
 	echo "Built Device Tree Overlay"
 modules:
 	make -C /usr/lib/modules/$(KERNEL_VERSION)/build M=$(CURDIR) modules
@@ -23,4 +24,5 @@ modules_install:
 	echo "Installed Kernel Module"
 clean:
 	rm $(MODULE_NAME).dtbo
+	rm $(MONITOR_NAME).dtbo
 	make -C /usr/lib/modules/$(KERNEL_VERSION)/build M=$(CURDIR) clean

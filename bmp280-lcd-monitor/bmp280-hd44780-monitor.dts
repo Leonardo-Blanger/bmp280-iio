@@ -22,5 +22,5 @@
 	io-channel-names = "temperature", "pressure";
       };
     };
-  };;
+  };
  };
