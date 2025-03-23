@@ -4,7 +4,7 @@ $(MODULE_NAME)-y := $(SRC_DIR)/main.o $(SRC_DIR)/bmp280-iio.o $(SRC_DIR)/bmp280.
 obj-m += $(MODULE_NAME).o
 
 MONITOR_NAME := bmp280-hd44780-monitor
-MONITOR_SRC_DIR := bmp280-lcd-monitor
+MONITOR_SRC_DIR := lcd-monitor
 $(MONITOR_NAME)-y := $(MONITOR_SRC_DIR)/bmp280-hd44780-monitor.o
 obj-m += $(MONITOR_NAME).o
 
