@@ -5,11 +5,13 @@
 #include <linux/errno.h>
 #include <linux/iio/consumer.h>
 #include <linux/init.h>
+#include <linux/jiffies.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/printk.h>
 #include <linux/of.h>
+#include <linux/workqueue.h>
 
 MODULE_AUTHOR("Leonardo Blanger");
 MODULE_LICENSE("GPL");
@@ -24,7 +26,17 @@ MODULE_SOFTDEP("pre: bmp280-iio");
 struct bmp280_hd44780_monitor {
   struct iio_channel *temperature_channel;
   struct iio_channel *pressure_channel;
+  struct delayed_work work;
 };
+
+#define REFRESH_PERIOD_SEC 2
+
+static void bmp280_hd44780_monitor_work(struct work_struct *work) {
+  pr_info("Running worker thread.\n");
+  struct delayed_work *dwork = container_of(work, struct delayed_work, work);
+  unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);
+  schedule_delayed_work(dwork, delay);
+}
 
 static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
   pr_info("Probing bmp280-hd44780-monitor platform driver.\n");
@@ -49,6 +61,14 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
     pr_err("Failed to acquire IIO pressure channel with error %ld. "
 	   "Aborting probe.\n", PTR_ERR(monitor->pressure_channel));
     return PTR_ERR(monitor->pressure_channel);
+  }
+  // Set up workqueue entry for our running worker function
+  INIT_DELAYED_WORK(&monitor->work, bmp280_hd44780_monitor_work);
+  unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);
+  if (!schedule_delayed_work(&monitor->work, delay)) {
+    pr_err("Failed to schedule worker thread. Aborting probe.\n");
+    // TODO: Check which error code I should return here
+    return -EFAULT;
   }
   // Make our context structure available from the platform driver
   platform_set_drvdata(pdev, monitor);
