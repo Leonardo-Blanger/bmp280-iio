@@ -4,6 +4,7 @@
 #include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/iio/consumer.h>
+#include <linux/iio/types.h>
 #include <linux/init.h>
 #include <linux/jiffies.h>
 #include <linux/mod_devicetable.h>
@@ -39,8 +40,41 @@ struct bmp280_hd44780_monitor {
 #define REFRESH_PERIOD_SEC 2
 
 static void bmp280_hd44780_monitor_work(struct work_struct *work) {
-  pr_info("Running worker thread.\n");
   struct delayed_work *dwork = container_of(work, struct delayed_work, work);
+  struct bmp280_hd44780_monitor *monitor =
+    container_of(dwork, struct bmp280_hd44780_monitor, dwork);
+  int status = 0;
+  int temperature = 0, temperature_val2 = 0;
+  status = iio_read_channel_attribute(monitor->temperature_channel,
+				      &temperature, &temperature_val2,
+				      IIO_CHAN_INFO_PROCESSED);
+  if (status < 0) {
+    pr_err("Failed to read temperature value from IIO channel: %d\n", status);
+    return;
+  }
+  if (status != IIO_VAL_FRACTIONAL) {
+    pr_err("Unexpected IIO temperature channel type: %d\n", status);
+    return;
+  }
+  int pressure = 0, pressure_val2 = 0;
+  status = iio_read_channel_attribute(monitor->pressure_channel,
+				      &pressure, &pressure_val2,
+				      IIO_CHAN_INFO_PROCESSED);
+  if (status < 0) {
+    pr_err("Failed to read pressure value from IIO channel: %d\n", status);
+    return;
+  }
+  if (status != IIO_VAL_FRACTIONAL) {
+    pr_err("Unexpected IIO pressure channel type: %d\n", status);
+    return;
+  }
+  int temperature_int = temperature / temperature_val2;
+  int temperature_100ths =
+    (100 * (temperature % temperature_val2)) / temperature_val2;
+  int pressure_int = pressure / pressure_val2;
+  int pressure_100ths = (100 * (pressure % pressure_val2)) / pressure_val2;
+  pr_info("Current temperature: %d.%02d C -- Current pressure: %d.%02d P\n",
+	  temperature_int, temperature_100ths, pressure_int, pressure_100ths);
   unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);
   schedule_delayed_work(dwork, delay);
 }
