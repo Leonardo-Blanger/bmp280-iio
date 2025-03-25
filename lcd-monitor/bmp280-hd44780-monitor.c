@@ -95,6 +95,8 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
  * Stops the driver worker thread.
  */
 static void bmp280_hd44780_monitor_remove(struct platform_device *pdev) {
+  struct bmp280_hd44780_monitor *monitor = platform_get_drvdata(pdev);
+  cancel_delayed_work_sync(&monitor->dwork);
   pr_info("Successfully removed bmp280-hd44780-monitor platform driver.\n");
 }
 
