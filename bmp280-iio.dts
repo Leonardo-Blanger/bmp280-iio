@@ -32,6 +32,10 @@
     };
   };
 
+  __exports__ {
+      leonardo_bmp280_iio;
+  };
+
   __overrides__ {
     // Allow the I2C address to be overridden via the command line
     address = <&leonardo_bmp280_iio>,"reg:0";
