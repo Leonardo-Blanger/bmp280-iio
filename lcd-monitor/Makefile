@@ -1,7 +1,9 @@
-MODULE_NAME := bmp280-iio
-SRC_DIR := src
-$(MODULE_NAME)-y := $(SRC_DIR)/main.o $(SRC_DIR)/bmp280-iio.o $(SRC_DIR)/bmp280.o
+MODULE_NAME := bmp280-hd44780-monitor
 obj-m += $(MODULE_NAME).o
+
+ifdef HD44780_ROOT
+  KBUILD_EXTRA_SYMBOLS += $(HD44780_ROOT)/Module.symvers
+endif
 
 KERNEL_VERSION := $(shell uname -r)
 
