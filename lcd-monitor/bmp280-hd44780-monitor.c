@@ -138,6 +138,36 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
   schedule_delayed_work(dwork, delay);
 }
 
+static ssize_t
+bmp280_hd44780_monitor_parameter_show(struct device *dev,
+				      struct device_attribute *attr, char *buf) {
+  pr_info("Parameter show called\n");
+  return snprintf(buf, 5, "hello");
+}
+
+static ssize_t
+bmp280_hd44780_monitor_parameter_store(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t count) {
+  char str[10];
+  memset(str, 0, sizeof(str));
+  strncpy(str, buf, min(9, count));
+  pr_info("Parameter store called with argument %s\n", str);
+  return count;
+}
+
+static DEVICE_ATTR(monitor_display_index, 0644,
+		   bmp280_hd44780_monitor_parameter_show,
+		   bmp280_hd44780_monitor_parameter_store);
+
+static DEVICE_ATTR(monitor_refresh_period_ms, 0644,
+		   bmp280_hd44780_monitor_parameter_show,
+		   bmp280_hd44780_monitor_parameter_store);
+
+static DEVICE_ATTR(monitor_running, 0644,
+		   bmp280_hd44780_monitor_parameter_show,
+		   bmp280_hd44780_monitor_parameter_store);
+
 /**
  * Monitor platform driver probe method.
  *
@@ -175,6 +205,19 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
   }
   // Make our context structure available from the platform driver
   platform_set_drvdata(pdev, monitor);
+  // Setup sysfs files for driver runtime control
+  ret = device_create_file(&pdev->dev, &dev_attr_monitor_display_index);
+  if (ret) {
+    goto out_fail;
+  }
+  ret = device_create_file(&pdev->dev, &dev_attr_monitor_refresh_period_ms);
+  if (ret) {
+    goto out_fail;
+  }
+  ret = device_create_file(&pdev->dev, &dev_attr_monitor_running);
+  if (ret) {
+    goto out_fail;
+  }
   // Start our monitor worker thread
   unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);
   if (!schedule_delayed_work(&monitor->dwork, delay)) {
@@ -185,6 +228,9 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
   pr_info("Successfully probed bmp280-hd44780-monitor platform driver.\n");
   return 0;
  out_fail:
+  device_remove_file(&pdev->dev, &dev_attr_monitor_display_index);
+  device_remove_file(&pdev->dev, &dev_attr_monitor_refresh_period_ms);
+  device_remove_file(&pdev->dev, &dev_attr_monitor_running);
   monitor_teardown(monitor);
   return ret;
 }
@@ -195,6 +241,9 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
  * Stops the driver worker thread.
  */
 static void bmp280_hd44780_monitor_remove(struct platform_device *pdev) {
+  device_remove_file(&pdev->dev, &dev_attr_monitor_display_index);
+  device_remove_file(&pdev->dev, &dev_attr_monitor_refresh_period_ms);
+  device_remove_file(&pdev->dev, &dev_attr_monitor_running);
   struct bmp280_hd44780_monitor *monitor = platform_get_drvdata(pdev);
   monitor_teardown(monitor);
   pr_info("Successfully removed bmp280-hd44780-monitor platform driver.\n");
