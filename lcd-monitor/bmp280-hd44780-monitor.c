@@ -12,6 +12,7 @@
 #include <linux/platform_device.h>
 #include <linux/printk.h>
 #include <linux/of.h>
+#include <linux/types.h>
 #include <linux/workqueue.h>
 
 MODULE_AUTHOR("Leonardo Blanger");
@@ -23,6 +24,12 @@ MODULE_DESCRIPTION("BMP280 live monitoring module "
  * The bmp280-iio module is a dependency, and needs to be loaded before.
  */
 MODULE_SOFTDEP("pre: bmp280-iio");
+
+struct hd44780;
+extern struct hd44780 *hd44780_get(int index);
+extern void hd44780_put(struct hd44780 *hd44780);
+extern int hd44780_reset_display(struct hd44780 *hd44780);
+extern ssize_t hd44780_write(struct hd44780 *hd44780, const char *msg, size_t length);
 
 /**
  * Monitor context structure.
@@ -73,6 +80,16 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
     (100 * (temperature % temperature_val2)) / temperature_val2;
   int pressure_int = pressure / pressure_val2;
   int pressure_100ths = (100 * (pressure % pressure_val2)) / pressure_val2;
+
+  struct hd44780 *display = hd44780_get(0);
+  if (IS_ERR(display)) {
+    pr_err("Failed to retrieve display: %ld\n", PTR_ERR(display));
+  } else {
+    hd44780_write(display, "Hello World!", 12);
+    hd44780_put(display);
+    display = NULL;
+  }
+
   pr_info("Current temperature: %d.%02d C -- Current pressure: %d.%02d P\n",
 	  temperature_int, temperature_100ths, pressure_int, pressure_100ths);
   unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);

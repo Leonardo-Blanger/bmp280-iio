@@ -8,6 +8,7 @@ MONITOR_SRC_DIR := lcd-monitor
 $(MONITOR_NAME)-y := $(MONITOR_SRC_DIR)/bmp280-hd44780-monitor.o
 obj-m += $(MONITOR_NAME).o
 
+KBUILD_EXTRA_SYMBOLS += $(PWD)/$(MONITOR_SRC_DIR)/hd44780/Module.symvers
 KERNEL_VERSION := $(shell uname -r)
 
 all: dtbo modules
