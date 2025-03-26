@@ -35,14 +35,56 @@ extern ssize_t hd44780_write(struct hd44780 *hd44780, const char *msg, size_t le
  * Monitor context structure.
  *
  * There is one instance of this allocated for each probed driver.
+ *
+ * Must be initialized before being used, and de-initialized after no longer
+ * needed, through calls to monitor_init and monitor_teardown, respectively.
  */
 struct bmp280_hd44780_monitor {
+  struct mutex monitor_mutex;
   // References to BMP280 IIO channels
   struct iio_channel *temperature_channel;
   struct iio_channel *pressure_channel;
   // Work structure for the periodic data refresh
   struct delayed_work dwork;
+  // ID of display we are writing to. Default to 0.
+  s32 display_index;
+  // How often do we update the display with new values. Default to 2 seconds.
+  u32 refresh_period_ms;
+  // Whether we are running or not.
+  bool running;
 };
+
+static void bmp280_hd44780_monitor_work(struct work_struct *work);
+
+/**
+ * Initializes a monitor context structure.
+ *
+ * A call to this function must eventually be followed by a call to
+ * monitor_teardown.
+ *
+ * Initializes the structure mutex, the monitor worker, and assign default
+ * values to monitor parameters.
+ */
+static void monitor_init(struct bmp280_hd44780_monitor *monitor) {
+  mutex_init(&monitor->monitor_mutex);
+  // Set up workqueue entry for our running worker function
+  INIT_DELAYED_WORK(&monitor->dwork, &bmp280_hd44780_monitor_work);
+  // Assign default parameter values
+  monitor->display_index = 0;
+  monitor->refresh_period_ms = 2000;
+  monitor->running = true;
+}
+
+/**
+ * Monitor context structure teardown.
+ *
+ * Counterpart to monitor_init. Cancels (synchronously) the monitor worker, and
+ * destroys the mutex.
+ */
+static void monitor_teardown(struct bmp280_hd44780_monitor *monitor) {
+  cancel_delayed_work_sync(&monitor->dwork);
+  mutex_destroy(&monitor->monitor_mutex);
+}
 
 #define REFRESH_PERIOD_SEC 2
 
@@ -99,8 +141,9 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
 /**
  * Monitor platform driver probe method.
  *
- * Allocates an instance of our monitor, retrieves references to the BMP280 IIO
- * channels, and start our worker thread (as a system default workqueue entry).
+ * Allocates and initializes an instance of our monitor, retrieves references to
+ * the BMP280 IIO channels, and start our worker thread (as a system default
+ * workqueue entry).
  */
 static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
   pr_info("Probing bmp280-hd44780-monitor platform driver.\n");
@@ -110,13 +153,16 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
   if (!monitor) {
     return -ENOMEM;
   }
+  monitor_init(monitor);
+  int ret = 0;
   // Attempt to retrieve temperature channel as a device property
   monitor->temperature_channel =
     devm_iio_channel_get(&pdev->dev, "temperature");
   if (IS_ERR(monitor->temperature_channel)) {
     pr_err("Failed to acquire IIO temperature channel with error %ld. "
 	   "Aborting probe.\n", PTR_ERR(monitor->temperature_channel));
-    return PTR_ERR(monitor->temperature_channel);
+    ret = PTR_ERR(monitor->temperature_channel);
+    goto out_fail;
   }
   // Attempt to retrieve pressure channel as a device property
   monitor->pressure_channel =
@@ -124,20 +170,23 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
   if (IS_ERR(monitor->pressure_channel)) {
     pr_err("Failed to acquire IIO pressure channel with error %ld. "
 	   "Aborting probe.\n", PTR_ERR(monitor->pressure_channel));
-    return PTR_ERR(monitor->pressure_channel);
-  }
-  // Set up workqueue entry for our running worker function
-  INIT_DELAYED_WORK(&monitor->dwork, bmp280_hd44780_monitor_work);
-  unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);
-  if (!schedule_delayed_work(&monitor->dwork, delay)) {
-    pr_err("Failed to schedule worker thread. Aborting probe.\n");
-    // TODO: Check which error code I should return here
-    return -EFAULT;
+    ret = PTR_ERR(monitor->pressure_channel);
+    goto out_fail;
   }
   // Make our context structure available from the platform driver
   platform_set_drvdata(pdev, monitor);
+  // Start our monitor worker thread
+  unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);
+  if (!schedule_delayed_work(&monitor->dwork, delay)) {
+    pr_err("Failed to schedule worker thread. Aborting probe.\n");
+    ret = -EFAULT;
+    goto out_fail;
+  }
   pr_info("Successfully probed bmp280-hd44780-monitor platform driver.\n");
   return 0;
+ out_fail:
+  monitor_teardown(monitor);
+  return ret;
 }
 
 /**
@@ -147,7 +196,7 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
  */
 static void bmp280_hd44780_monitor_remove(struct platform_device *pdev) {
   struct bmp280_hd44780_monitor *monitor = platform_get_drvdata(pdev);
-  cancel_delayed_work_sync(&monitor->dwork);
+  monitor_teardown(monitor);
   pr_info("Successfully removed bmp280-hd44780-monitor platform driver.\n");
 }
 

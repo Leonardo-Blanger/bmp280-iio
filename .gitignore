@@ -1,6 +1,6 @@
 README.html
 modules.order
-/Module.symvers
+Module.symvers
 *.o
 *.ko
 *.cmd
