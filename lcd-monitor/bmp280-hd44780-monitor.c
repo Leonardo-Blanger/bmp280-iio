@@ -22,15 +22,10 @@ MODULE_DESCRIPTION("BMP280 live monitoring module "
 		   "using the HD44780 character LCD display.");
 
 /**
- * The bmp280-iio module is a dependency, and needs to be loaded before.
+ * The bmp280-iio and hd44780 modules are dependencies,
+ * and need to be loaded before.
  */
-MODULE_SOFTDEP("pre: bmp280-iio");
-
-struct hd44780;
-extern struct hd44780 *hd44780_get(int index);
-extern void hd44780_put(struct hd44780 *hd44780);
-extern int hd44780_reset_display(struct hd44780 *hd44780);
-extern ssize_t hd44780_write(struct hd44780 *hd44780, const char *msg, size_t length);
+MODULE_SOFTDEP("pre: bmp280-iio hd44780");
 
 /**
  * Monitor context structure.
@@ -51,9 +46,18 @@ struct bmp280_hd44780_monitor {
   s32 display_index;
   // How often do we update the display with new values. Default to 2 seconds.
   u32 refresh_period_ms;
-  // Whether we are running or not.
+  // Whether we are running or not. Default to true.
   bool running;
 };
+
+/**
+ * Forward declarations of symbols from the hd44780 module.
+ */
+struct hd44780;
+extern struct hd44780 *hd44780_get(int index);
+extern void hd44780_put(struct hd44780 *hd44780);
+extern int hd44780_reset_display(struct hd44780 *hd44780);
+extern ssize_t hd44780_write(struct hd44780 *hd44780, const char *msg, size_t length);
 
 static void bmp280_hd44780_monitor_work(struct work_struct *work);
 
@@ -83,6 +87,11 @@ static void monitor_init(struct bmp280_hd44780_monitor *monitor) {
  * destroys the mutex.
  */
 static void monitor_teardown(struct bmp280_hd44780_monitor *monitor) {
+  // In case the worker is still running, make it stop.
+  mutex_lock(&monitor->monitor_mutex);
+  monitor->running = false;
+  mutex_unlock(&monitor->monitor_mutex);
+  // In case the worker is still scheduled, cancel it.
   cancel_delayed_work_sync(&monitor->dwork);
   mutex_destroy(&monitor->monitor_mutex);
 }
@@ -93,7 +102,7 @@ static void monitor_teardown(struct bmp280_hd44780_monitor *monitor) {
  * This is where the bulk of the work takes place. This function is responsible
  * for reading and parsing the temperature and pressure values from the BMP280
  * IIO channels, formatting them into human readable messages, retrieving the
- * required hd44780 display instance, and writing the message to the display.
+ * required hd44780 display instance, and writing the messages to the display.
  *
  * This function gets scheduled to run periodically, according to the running
  * and refresh_period_ms parameters.
@@ -143,7 +152,7 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
 	     temperature_int, temperature_100ths);
   char pressure_msg[20];
   size_t pressure_msg_len =
-    snprintf(pressure_msg, 20, "Pressure: %4d.%02d hP",
+    snprintf(pressure_msg, 20, "Pressure: %4d.%02d P",
 	     pressure_int, pressure_100ths);
   // Retrieve the registered display, identified by display_index
   struct hd44780 *display = hd44780_get(monitor->display_index);
@@ -250,7 +259,8 @@ bmp280_hd44780_monitor_parameter_store(struct device *dev,
   } else if (attr == &dev_attr_monitor_refresh_period_ms) {
     // base=0 means autodetect base
     ret = kstrtou32(str, /*base=*/0, &monitor->refresh_period_ms);
-    // If currently running, run the next refresh right away.
+    // If currently running, run the next refresh right away, so we don't have
+    // to wait for the old refresh period.
     if (ret == 0 && monitor->running) {
       if (!schedule_delayed_work(&monitor->dwork, /*delay=*/0)) {
 	pr_err("Failed to schedule worker thread.\n");
@@ -272,7 +282,7 @@ bmp280_hd44780_monitor_parameter_store(struct device *dev,
 	monitor->running = true;
 	if (!schedule_delayed_work(&monitor->dwork, /*delay=*/0)) {
 	  pr_err("Failed to schedule worker thread.\n");
-	  monitor->running = 0;
+	  monitor->running = false;
 	  ret = -EFAULT;
 	}
       }
@@ -291,8 +301,8 @@ bmp280_hd44780_monitor_parameter_store(struct device *dev,
  * Monitor platform driver probe method.
  *
  * Allocates and initializes an instance of our monitor, retrieves references to
- * the BMP280 IIO channels, and start our worker thread (as a system default
- * workqueue entry).
+ * the BMP280 IIO channels, creates the sysfs attribute files, and start our
+ * worker thread (as a system default workqueue entry).
  */
 static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
   pr_info("Probing bmp280-hd44780-monitor platform driver.\n");
@@ -392,30 +402,7 @@ static struct platform_driver bmp280_hd44780_monitor_driver = {
 };
 
 /**
- * Module init function.
- *
- * Registers the platform driver.
- */
-static int __init bmp280_hd44780_monitor_init(void) {
-  int status = platform_driver_register(&bmp280_hd44780_monitor_driver);
-  if (status) {
-    pr_err("Failed to register bmp280-hd44780-monitor platform driver: %d\n",
-	   status);
-    return status;
-  }
-  pr_info("Loaded bmp280-hd44780-monitor.\n");
-  return 0;
-}
-
-/**
- * Module exit function.
- *
- * Unregisters the platform driver registered during init.
- */
-static void __exit bmp280_hd44780_monitor_exit(void) {
-  platform_driver_unregister(&bmp280_hd44780_monitor_driver);
-  pr_info("Removed bmp280-hd44780-monitor.\n");
-}
-
-module_init(bmp280_hd44780_monitor_init);
-module_exit(bmp280_hd44780_monitor_exit);
+ * This macro gets replaced by a module __init/__exit function pair,
+ * that does nothing other than registering/unregistering the platform driver.
+*/
+module_platform_driver(bmp280_hd44780_monitor_driver);
