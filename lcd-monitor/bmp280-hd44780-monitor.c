@@ -7,6 +7,7 @@
 #include <linux/iio/types.h>
 #include <linux/init.h>
 #include <linux/jiffies.h>
+#include <linux/kernel.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -140,33 +141,90 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
 
 static ssize_t
 bmp280_hd44780_monitor_parameter_show(struct device *dev,
+				      struct device_attribute *attr, char *buf);
+static ssize_t
+bmp280_hd44780_monitor_parameter_store(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t count);
+
+/**
+ * Sysfs device attribute files for runtime configuration.
+ */
+static DEVICE_ATTR(monitor_display_index, 0644,
+		   bmp280_hd44780_monitor_parameter_show,
+		   bmp280_hd44780_monitor_parameter_store);
+static DEVICE_ATTR(monitor_refresh_period_ms, 0644,
+		   bmp280_hd44780_monitor_parameter_show,
+		   bmp280_hd44780_monitor_parameter_store);
+static DEVICE_ATTR(monitor_running, 0644,
+		   bmp280_hd44780_monitor_parameter_show,
+		   bmp280_hd44780_monitor_parameter_store);
+
+/**
+ * Sysfs device attribute show function.
+ */
+static ssize_t
+bmp280_hd44780_monitor_parameter_show(struct device *dev,
 				      struct device_attribute *attr, char *buf) {
-  pr_info("Parameter show called\n");
-  return snprintf(buf, 5, "hello");
+  struct bmp280_hd44780_monitor *monitor = dev_get_drvdata(dev);
+  if (mutex_lock_interruptible(&monitor->monitor_mutex)) {
+    return -ERESTARTSYS;
+  }
+  ssize_t ret = 0;
+  if (attr == &dev_attr_monitor_display_index) {
+    ret = snprintf(buf, 12, "%d", monitor->display_index);
+  } else if (attr == &dev_attr_monitor_refresh_period_ms) {
+    ret = snprintf(buf, 11, "%u", monitor->refresh_period_ms);
+  } else if (attr == &dev_attr_monitor_running) {
+    ret = snprintf(buf, 2, "%d", monitor->running ? 1 : 0);
+  } else {
+    ret = -EINVAL;
+  }
+  mutex_unlock(&monitor->monitor_mutex);
+  return ret;
 }
 
+/**
+ * Sysfs device attribute store function.
+ */
 static ssize_t
 bmp280_hd44780_monitor_parameter_store(struct device *dev,
 				       struct device_attribute *attr,
 				       const char *buf, size_t count) {
-  char str[10];
+  // 25 characters is enough for any 64 bit value.
+  if (count > 25) {
+    pr_err("Attempt to write unexpected long value to sysfs attribute.\n");
+    return -EINVAL;
+  }
+  struct bmp280_hd44780_monitor *monitor = dev_get_drvdata(dev);
+  if (mutex_lock_interruptible(&monitor->monitor_mutex)) {
+    return -ERESTARTSYS;
+  }
+  // Copy buffer to local, null-terminated string.
+  char str[26];
   memset(str, 0, sizeof(str));
-  strncpy(str, buf, min(9, count));
-  pr_info("Parameter store called with argument %s\n", str);
-  return count;
+  memcpy(str, buf, count);
+  ssize_t ret = 0;
+  if (attr == &dev_attr_monitor_display_index) {
+    // base=0 means autodetect base
+    ret = kstrtos32(str, /*base=*/0, &monitor->display_index);
+  } else if (attr == &dev_attr_monitor_refresh_period_ms) {
+    // base=0 means autodetect base
+    ret = kstrtou32(str, /*base=*/0, &monitor->refresh_period_ms);
+  } else if (attr == &dev_attr_monitor_running) {
+    s32 value = monitor->running;
+    // base=0 means autodetect base
+    ret = kstrtos32(str, /*base=*/0, &value);
+    monitor->running = (value != 0);
+  } else {
+    ret = -EINVAL;
+  }
+  mutex_unlock(&monitor->monitor_mutex);
+  if (ret == 0) {
+    ret = count;
+  }
+  return ret;
 }
-
-static DEVICE_ATTR(monitor_display_index, 0644,
-		   bmp280_hd44780_monitor_parameter_show,
-		   bmp280_hd44780_monitor_parameter_store);
-
-static DEVICE_ATTR(monitor_refresh_period_ms, 0644,
-		   bmp280_hd44780_monitor_parameter_show,
-		   bmp280_hd44780_monitor_parameter_store);
-
-static DEVICE_ATTR(monitor_running, 0644,
-		   bmp280_hd44780_monitor_parameter_show,
-		   bmp280_hd44780_monitor_parameter_store);
 
 /**
  * Monitor platform driver probe method.
@@ -203,8 +261,8 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
     ret = PTR_ERR(monitor->pressure_channel);
     goto out_fail;
   }
-  // Make our context structure available from the platform driver
-  platform_set_drvdata(pdev, monitor);
+  // Make our context structure available from this device
+  dev_set_drvdata(&pdev->dev, monitor);
   // Setup sysfs files for driver runtime control
   ret = device_create_file(&pdev->dev, &dev_attr_monitor_display_index);
   if (ret) {
@@ -244,7 +302,7 @@ static void bmp280_hd44780_monitor_remove(struct platform_device *pdev) {
   device_remove_file(&pdev->dev, &dev_attr_monitor_display_index);
   device_remove_file(&pdev->dev, &dev_attr_monitor_refresh_period_ms);
   device_remove_file(&pdev->dev, &dev_attr_monitor_running);
-  struct bmp280_hd44780_monitor *monitor = platform_get_drvdata(pdev);
+  struct bmp280_hd44780_monitor *monitor = dev_get_drvdata(&pdev->dev);
   monitor_teardown(monitor);
   pr_info("Successfully removed bmp280-hd44780-monitor platform driver.\n");
 }
