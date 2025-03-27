@@ -1,18 +1,21 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/container_of.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/iio/consumer.h>
 #include <linux/iio/types.h>
-#include <linux/init.h>
 #include <linux/jiffies.h>
-#include <linux/kernel.h>
+#include <linux/kstrtox.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/printk.h>
-#include <linux/of.h>
+#include <linux/sprintf.h>
+#include <linux/string.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
