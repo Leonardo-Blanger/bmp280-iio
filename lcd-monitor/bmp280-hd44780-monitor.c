@@ -193,7 +193,7 @@ bmp280_hd44780_monitor_parameter_store(struct device *dev,
 				       const char *buf, size_t count) {
   // 25 characters is enough for any 64 bit value.
   if (count > 25) {
-    pr_err("Attempt to write unexpected long value to sysfs attribute.\n");
+    pr_err("Attempt to write unexpectedly long value to sysfs attribute.\n");
     return -EINVAL;
   }
   struct bmp280_hd44780_monitor *monitor = dev_get_drvdata(dev);
@@ -211,11 +211,33 @@ bmp280_hd44780_monitor_parameter_store(struct device *dev,
   } else if (attr == &dev_attr_monitor_refresh_period_ms) {
     // base=0 means autodetect base
     ret = kstrtou32(str, /*base=*/0, &monitor->refresh_period_ms);
+    // If currently running, run the next refresh right away.
+    if (ret == 0 && monitor->running) {
+      if (!schedule_delayed_work(&monitor->dwork, /*delay=*/0)) {
+	pr_err("Failed to schedule worker thread.\n");
+	monitor->running = 0;
+	ret = -EFAULT;
+      }
+    }
   } else if (attr == &dev_attr_monitor_running) {
     s32 value = monitor->running;
     // base=0 means autodetect base
     ret = kstrtos32(str, /*base=*/0, &value);
-    monitor->running = (value != 0);
+    if (ret == 0) {
+      if (value == 0) {
+	// Stop running
+	monitor->running = false;
+	cancel_delayed_work(&monitor->dwork);
+      } else {
+	// Either start running again, or run the next refresh right away.
+	monitor->running = true;
+	if (!schedule_delayed_work(&monitor->dwork, /*delay=*/0)) {
+	  pr_err("Failed to schedule worker thread.\n");
+	  monitor->running = 0;
+	  ret = -EFAULT;
+	}
+      }
+    }
   } else {
     ret = -EINVAL;
   }
