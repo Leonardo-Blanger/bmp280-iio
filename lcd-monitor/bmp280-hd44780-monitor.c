@@ -87,56 +87,95 @@ static void monitor_teardown(struct bmp280_hd44780_monitor *monitor) {
   mutex_destroy(&monitor->monitor_mutex);
 }
 
-#define REFRESH_PERIOD_SEC 2
-
+/**
+ * Monitor worker function.
+ *
+ * This is where the bulk of the work takes place. This function is responsible
+ * for reading and parsing the temperature and pressure values from the BMP280
+ * IIO channels, formatting them into human readable messages, retrieving the
+ * required hd44780 display instance, and writing the message to the display.
+ *
+ * This function gets scheduled to run periodically, according to the running
+ * and refresh_period_ms parameters.
+ */
 static void bmp280_hd44780_monitor_work(struct work_struct *work) {
   struct delayed_work *dwork = container_of(work, struct delayed_work, work);
   struct bmp280_hd44780_monitor *monitor =
     container_of(dwork, struct bmp280_hd44780_monitor, dwork);
+  mutex_lock(&monitor->monitor_mutex);
   int status = 0;
+  // Read temperature from the BMP280 IIO channel
   int temperature = 0, temperature_val2 = 0;
   status = iio_read_channel_attribute(monitor->temperature_channel,
 				      &temperature, &temperature_val2,
 				      IIO_CHAN_INFO_PROCESSED);
   if (status < 0) {
     pr_err("Failed to read temperature value from IIO channel: %d\n", status);
-    return;
+    goto out;
   }
   if (status != IIO_VAL_FRACTIONAL) {
     pr_err("Unexpected IIO temperature channel type: %d\n", status);
-    return;
+    goto out;
   }
+  // Read pressure from the BMP280 IIO channel
   int pressure = 0, pressure_val2 = 0;
   status = iio_read_channel_attribute(monitor->pressure_channel,
 				      &pressure, &pressure_val2,
 				      IIO_CHAN_INFO_PROCESSED);
   if (status < 0) {
     pr_err("Failed to read pressure value from IIO channel: %d\n", status);
-    return;
+    goto out;
   }
   if (status != IIO_VAL_FRACTIONAL) {
     pr_err("Unexpected IIO pressure channel type: %d\n", status);
-    return;
+    goto out;
   }
+  // Compute integer and decimal parts
   int temperature_int = temperature / temperature_val2;
   int temperature_100ths =
     (100 * (temperature % temperature_val2)) / temperature_val2;
   int pressure_int = pressure / pressure_val2;
   int pressure_100ths = (100 * (pressure % pressure_val2)) / pressure_val2;
-
-  struct hd44780 *display = hd44780_get(0);
+  // Compose formatted string messages
+  char temperature_msg[20];
+  size_t temperature_msg_len =
+    snprintf(temperature_msg, 20, "Temperature: %3d.%02d C",
+	     temperature_int, temperature_100ths);
+  char pressure_msg[20];
+  size_t pressure_msg_len =
+    snprintf(pressure_msg, 20, "Pressure: %4d.%02d hP",
+	     pressure_int, pressure_100ths);
+  // Retrieve the registered display, identified by display_index
+  struct hd44780 *display = hd44780_get(monitor->display_index);
   if (IS_ERR(display)) {
-    pr_err("Failed to retrieve display: %ld\n", PTR_ERR(display));
-  } else {
-    hd44780_write(display, "Hello World!", 12);
-    hd44780_put(display);
-    display = NULL;
+    pr_err("Failed to retrieve display with index %d: %ld\n",
+	   monitor->display_index, PTR_ERR(display));
+    goto out;
   }
-
-  pr_info("Current temperature: %d.%02d C -- Current pressure: %d.%02d P\n",
-	  temperature_int, temperature_100ths, pressure_int, pressure_100ths);
-  unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);
-  schedule_delayed_work(dwork, delay);
+  // Clear the display before writing anything
+  hd44780_reset_display(display);
+  // Write the temperature message to the display
+  hd44780_write(display, temperature_msg, temperature_msg_len);
+  // Line break between the two messages
+  hd44780_write(display, "\n", 1);
+  // Write the pressure message to the display
+  hd44780_write(display, pressure_msg, pressure_msg_len);
+  // Release the display
+  hd44780_put(display);
+  display = NULL;
+  pr_info("\n%s\n\n%s\n", temperature_msg, pressure_msg);
+  // If we are still running, re-schedule the worker to run again after
+  // refresh_period_ms milliseconds.
+  if (monitor->running) {
+    unsigned long delay = msecs_to_jiffies(monitor->refresh_period_ms);
+    if (!schedule_delayed_work(dwork, delay)) {
+      pr_err("Failed to reschedule worker thread.\n");
+      monitor->running = false;
+      goto out;
+    }
+  }
+ out:
+  mutex_unlock(&monitor->monitor_mutex);
 }
 
 static ssize_t
@@ -215,7 +254,7 @@ bmp280_hd44780_monitor_parameter_store(struct device *dev,
     if (ret == 0 && monitor->running) {
       if (!schedule_delayed_work(&monitor->dwork, /*delay=*/0)) {
 	pr_err("Failed to schedule worker thread.\n");
-	monitor->running = 0;
+	monitor->running = false;
 	ret = -EFAULT;
       }
     }
@@ -299,8 +338,7 @@ static int bmp280_hd44780_monitor_probe(struct platform_device *pdev) {
     goto out_fail;
   }
   // Start our monitor worker thread
-  unsigned long delay = msecs_to_jiffies(REFRESH_PERIOD_SEC * 1000);
-  if (!schedule_delayed_work(&monitor->dwork, delay)) {
+  if (!schedule_delayed_work(&monitor->dwork, /*delay=*/0)) {
     pr_err("Failed to schedule worker thread. Aborting probe.\n");
     ret = -EFAULT;
     goto out_fail;
