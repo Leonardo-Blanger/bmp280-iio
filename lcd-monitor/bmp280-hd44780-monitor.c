@@ -146,17 +146,18 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
   int temperature_int = temperature / temperature_val2;
   int temperature_100ths =
     (100 * (temperature % temperature_val2)) / temperature_val2;
+  // For pressure, use only integer part,
+  // since the number in hPa is already long
+  pressure_val2 *= 100; // Convert from Pascal to hecto-Pascal
   int pressure_int = pressure / pressure_val2;
-  int pressure_100ths = (100 * (pressure % pressure_val2)) / pressure_val2;
   // Compose formatted string messages
-  char temperature_msg[20];
+  char temperature_msg[16];
   size_t temperature_msg_len =
-    snprintf(temperature_msg, 20, "Temperature: %3d.%02d C",
+    snprintf(temperature_msg, 16, "Temp: %3d.%02d C",
 	     temperature_int, temperature_100ths);
-  char pressure_msg[20];
+  char pressure_msg[16];
   size_t pressure_msg_len =
-    snprintf(pressure_msg, 20, "Pressure: %4d.%02d P",
-	     pressure_int, pressure_100ths);
+    snprintf(pressure_msg, 16, "Pres: %4d hPa", pressure_int);
   // Retrieve the registered display, identified by display_index
   struct hd44780 *display = hd44780_get(monitor->display_index);
   if (IS_ERR(display)) {
