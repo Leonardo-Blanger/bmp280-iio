@@ -265,11 +265,9 @@ bmp280_hd44780_monitor_parameter_store(struct device *dev,
     // If currently running, run the next refresh right away, so we don't have
     // to wait for the old refresh period.
     if (ret == 0 && monitor->running) {
-      if (!schedule_delayed_work(&monitor->dwork, /*delay=*/0)) {
-	pr_err("Failed to schedule worker thread.\n");
-	monitor->running = false;
-	ret = -EFAULT;
-      }
+      // Ignore return value, this might fail if the the work is already queued
+      // up for running, which is normal.
+      schedule_delayed_work(&monitor->dwork, /*delay=*/0);
     }
   } else if (attr == &dev_attr_monitor_running) {
     s32 value = monitor->running;
@@ -283,11 +281,9 @@ bmp280_hd44780_monitor_parameter_store(struct device *dev,
       } else {
 	// Either start running again, or run the next refresh right away.
 	monitor->running = true;
-	if (!schedule_delayed_work(&monitor->dwork, /*delay=*/0)) {
-	  pr_err("Failed to schedule worker thread.\n");
-	  monitor->running = false;
-	  ret = -EFAULT;
-	}
+	// Ignore return value, this might fail if the the work is already queued
+	// up for running, which is normal.
+	schedule_delayed_work(&monitor->dwork, /*delay=*/0);
       }
     }
   } else {
