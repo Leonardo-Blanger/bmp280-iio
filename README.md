@@ -2,6 +2,8 @@
 
 > **Disclaimer:** This is a hobby project I developed after having studied Linux driver development for the past few weeks. I came up with this project as a way to explore concepts such as I2C comunication and the IIO subsystem in practice. In summary, the main purpose of this project is self learning, and it was absolutely **not** tested for "mission critical" use cases. Use it at your own risk.
 
+<img src="images/lcd-monitor.jpg" height=512>
+
 This project provides a Linux kernel driver for the Bosch BMP280 temperature and pressure sensor. It exposes the sensor data through the Linux IIO (Industrial I/O) subsystem, making it easy to integrate with existing tools and libraries. It also supports IIO triggered buffers. 
 
 This project was designed with full support for Device Tree Overlays, so it can be reconfigured to work on any platform by simply editing the overlay file. That being said, it was only tested on a Raspberry Pi 5, with a BMP280 sensor connected over I2C.
@@ -16,6 +18,8 @@ Instead of a simple character device, this driver uses the [IIO framework](https
 *   **Sysfs Integration:** Sensor readings and configuration options are exposed through the sysfs filesystem, making them easily accessible from userspace.
 * **Data Buffering:** IIO supports data buffering, which can be useful for applications that need to collect data at high frequencies.
 * **Trigger Support:**  The IIO framework allows setting up triggers, often used in combination with data buffers. Triggers are events that cause the driver to read a sample of data and push it into a data buffer.
+
+I also wrote another module for a monitor driver that queries the temperature and pressure values using the in-kernel IIO consumer interface, and prints them to a [Hitachi HD44780](https://cdn.sparkfun.com/assets/9/5/f/7/b/HD44780.pdf) character LCD display, as shown in the opening image. For information on this, check out the [LCD Monitor](#lcd-monitor) section below.
 
 ## Prerequisites
 
@@ -383,6 +387,46 @@ $ cat /dev/iio:device0 | hexdump
 From `scan_elements/in_temp_type`, we have that our final temperature type string is `le:s32/32>>0`. This means it takes up 32 bits, or 2 consecutive groups above, so the first temperature value is `07f1 0000`. Since this is Little Endian, you should read the groups in reverse, i.e. `000007f1`, or 2033. After dividing by 100, we have that the first temperature reading is 20.33 C. With a similar reasoning, the first pressure value (`e433 018f`), is interpreted as 26207283/256, or ~1023.72 hecto-Pascal.
 
 A note on padding. Depending on the size of the channels you select, the IIO subsystem might pad each sample with zero bytes at the end. I believe it does this to have captured samples cache aligned, or some other performance reason. On my system, it seems to always make the sample size a multiple of 4 bytes. Before using this buffered data, you should make sure you know how much padding each sample has. You can do that by comparing how many bytes you have per sample, with how many you expect to have from the `scan_elements/*_type` strings.
+
+## LCD Monitor
+
+I implemented a second module uses the in-kernel IIO consumer interface to query the processed temperature and pressure values, and print them to a [Hitachi HD44780](https://cdn.sparkfun.com/assets/9/5/f/7/b/HD44780.pdf) character LCD display.
+
+<img src="images/lcd-monitor.jpg" height=512>
+
+This module is called `bmp280-hd44780-monitor`, and the sources are in the `lcd-monitor` directory. It depends on our main `bmp280-iio` module, as well as another driver I wrote, for the HD44780 display, available on [this repo](https://github.com/Leonardo-Blanger/hd44780). Please, follow the README instructions on that repository to set up and use the HD44780 display. After you have both drivers, `bmp280-iio` and `hd44780`, built and loaded, proceed with the following instructions.
+
+1. **Build the module and device tree overlay.** For this, you will need to tell the build system about the exported symbol table for the dependency `hd44780` module. These are in the `Module.symvers` file, created on the root of the hd44780 project after you build it.
+
+``` bash
+cd lcd-monitor
+make HD44780_ROOT=/absolute/path/to/built/hd44780/repo
+```
+
+   This will generate the `.dtbo` device tree overlay file, and the `.ko` kernel module.
+
+1. **Load the overlay and module.**
+
+``` bash
+sudo dtoverlay bmp280-hd44780-monitor.dtbo
+sudo insmod bmp280-hd44780-monitor.ko
+```
+
+   If you want, you can perform the same instructions as for the main `bmp280-iio` module, to have these installed system-wide and/or loaded during boot.
+
+   From now on, the monitor driver should already be running and updating your display periodically.
+
+1. **Runtime configuration.** I created three sysfs attribute files to control the monitor driver during runtime. These will be in the driver sysfs directory. Since this is a platform driver, the path is:
+
+``` bash
+/sys/bus/platform/drivers/bmp280-hd44780-monitor/leonardo_bmp280_hd44780_monitor
+```
+
+   You can read and write to all three files. The files are:
+
+   * `monitor_display_index`: This attribute controls which hd44780 display instance we write our data to. All default overlays in the hd44780 repo have this index set to zero, which is the default for this attribute. Unless you have more than one display, or for some reason changed the display index in the device tree, you do not need to change this.
+   * `monitor_running`: This is a boolean attribute, any number different than 0 means to run the monitor driver. Defaults to 1.
+   * `monitor_refresh_period_ms`: How often does the driver queries the values from the sensor over IIO, and writes them to the display. Defaults to 2000 ms (2 seconds).
 
 ## License
 
