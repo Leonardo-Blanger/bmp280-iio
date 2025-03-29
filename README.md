@@ -398,19 +398,19 @@ This module is called `bmp280-hd44780-monitor`, and the sources are in the `lcd-
 
 1. **Build the module and device tree overlay.** For this, you will need to tell the build system about the exported symbol table for the dependency `hd44780` module. These are in the `Module.symvers` file, created on the root of the hd44780 project after you build it.
 
-``` bash
-cd lcd-monitor
-make HD44780_ROOT=/absolute/path/to/built/hd44780/repo
-```
+   ``` bash
+   cd lcd-monitor
+   make HD44780_ROOT=/absolute/path/to/built/hd44780/repo
+   ```
 
    This will generate the `.dtbo` device tree overlay file, and the `.ko` kernel module.
 
 1. **Load the overlay and module.**
 
-``` bash
-sudo dtoverlay bmp280-hd44780-monitor.dtbo
-sudo insmod bmp280-hd44780-monitor.ko
-```
+   ``` bash
+   sudo dtoverlay bmp280-hd44780-monitor.dtbo
+   sudo insmod bmp280-hd44780-monitor.ko
+   ```
 
    If you want, you can perform the same instructions as for the main `bmp280-iio` module, to have these installed system-wide and/or loaded during boot.
 
@@ -418,9 +418,9 @@ sudo insmod bmp280-hd44780-monitor.ko
 
 1. **Runtime configuration.** I created three sysfs attribute files to control the monitor driver during runtime. These will be in the driver sysfs directory. Since this is a platform driver, the path is:
 
-``` bash
-/sys/bus/platform/drivers/bmp280-hd44780-monitor/leonardo_bmp280_hd44780_monitor
-```
+   ``` bash
+   /sys/bus/platform/drivers/bmp280-hd44780-monitor/leonardo_bmp280_hd44780_monitor
+   ```
 
    You can read and write to all three files. The files are:
 
