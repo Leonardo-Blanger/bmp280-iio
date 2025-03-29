@@ -176,7 +176,6 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
   // Release the display
   hd44780_put(display);
   display = NULL;
-  pr_info("\n%s\n\n%s\n", temperature_msg, pressure_msg);
   // If we are still running, re-schedule the worker to run again after
   // refresh_period_ms milliseconds.
   if (monitor->running) {
