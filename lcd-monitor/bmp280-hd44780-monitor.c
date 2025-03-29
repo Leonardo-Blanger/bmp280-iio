@@ -176,6 +176,7 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
   // Release the display
   hd44780_put(display);
   display = NULL;
+ out:
   // If we are still running, re-schedule the worker to run again after
   // refresh_period_ms milliseconds.
   if (monitor->running) {
@@ -183,10 +184,8 @@ static void bmp280_hd44780_monitor_work(struct work_struct *work) {
     if (!schedule_delayed_work(dwork, delay)) {
       pr_err("Failed to reschedule worker thread.\n");
       monitor->running = false;
-      goto out;
     }
   }
- out:
   mutex_unlock(&monitor->monitor_mutex);
 }
 
